@@ -13,12 +13,12 @@ import uuid
 import logging
 import numpy as np
 
-from ..models.memory_item import MemoryItem
-from ..database.astra_connector import AstraDBConnector
-from ..database.memory_store import MemoryStore
-from .gate_networks import LSTMGateNetwork
-from .context_assembler import ContextAssembler
-from ..config.settings import LSTMConfig
+from models.memory_item import MemoryItem
+from database.astra_connector import AstraDBConnector
+from database.memory_store import MemoryStore
+from core.gate_networks import LSTMGateNetwork
+from core.context_assembler import ContextAssembler
+from config.settings import LSTMConfig
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

@@ -1,159 +1,199 @@
-#!/usr/bin/env python3
-"""
-Gemini Engine Demo Script
-Demonstrates basic functionality without requiring external API keys
-"""
-
+# enhanced_integration_demo.py
 import asyncio
-import os
 from datetime import datetime
-from shared.schemas import (
-    ConversationContext, UserProfile, PersonalityProfile,
-    CommunicationStyle, MemoryContext
-)
-from component6.conversation_manager import ConversationManager
+from component6.enhanced_conversation_manager import EnhancedConversationManager
 from component7.quality_analyzer import QualityAnalyzer
-from shared.mock_interfaces import MockComponent5Interface
+from component7.feedback_engine import FeedbackEngine
+from component7.metrics_collector import MetricsCollector
 
-async def demo_basic_functionality():
-    """Demo basic functionality with mock data"""
-    print("🚀 Gemini Engine Demo - Basic Functionality")
-    print("=" * 50)
+class Complete5to6to7Integration:
+    """Complete integration: Component 5 → Component 6 → Component 7"""
     
-    # Set test mode
-    os.environ["TEST_MODE"] = "true"
+    def __init__(self):
+        # Core components
+        self.conversation_manager = EnhancedConversationManager()
+        
+        # Component 7 modules
+        self.quality_analyzer = QualityAnalyzer()
+        self.feedback_engine = FeedbackEngine()
+        self.metrics_collector = MetricsCollector()
+        
+        # Integration metrics
+        self.pipeline_stats = {
+            'total_queries_processed': 0,
+            'successful_completions': 0,
+            'average_quality_score': 0.0,
+            'processing_times': []
+        }
     
-    try:
-        # 1. Test Component 6 - Conversation Manager
-        print("\n📝 Testing Component 6: Conversation Manager")
-        print("-" * 40)
+    async def initialize(self):
+        """Initialize all components"""
+        print("🚀 Initializing Complete 5→6→7 Integration Pipeline...")
         
-        manager = ConversationManager()
-        print("✅ Conversation Manager initialized successfully")
+        # Initialize conversation manager (includes Component 5 LSTM)
+        await self.conversation_manager.initialize()
         
-        # 2. Test Component 7 - Quality Analyzer
-        print("\n🔍 Testing Component 7: Quality Analyzer")
-        print("-" * 40)
+        print("✅ Complete integration pipeline initialized")
+    
+    async def process_complete_workflow(self, 
+                                       user_id: str,
+                                       user_query: str) -> Dict[str, Any]:
+        """
+        Complete workflow: Query → LSTM → Gemini → Analysis → Response
+        """
+        start_time = datetime.utcnow()
         
-        analyzer = QualityAnalyzer()
-        print("✅ Quality Analyzer initialized successfully")
+        print(f"\n🎯 Complete Integration Workflow")
+        print("=" * 80)
+        print(f"User: {user_id}")
+        print(f"Query: {user_query}")
         
-        # 3. Test Mock Memory Retriever
-        print("\n🧠 Testing Mock Memory Retriever")
-        print("-" * 40)
+        try:
+            self.pipeline_stats['total_queries_processed'] += 1
+            
+            # Phase 1: Component 5 + 6 Integration (LSTM → Gemini)
+            print(f"\n📍 Phase 1: LSTM Memory Retrieval + Gemini Response")
+            conversation_result = await self.conversation_manager.process_user_query(
+                user_id=user_id,
+                user_query=user_query
+            )
+            
+            if 'error' in conversation_result:
+                raise Exception(f"Conversation processing failed: {conversation_result['error']}")
+            
+            # Phase 2: Component 7 Analysis
+            print(f"\n📍 Phase 2: Response Quality Analysis")
+            
+            # Analyze response quality
+            quality_analysis = await self.quality_analyzer.analyze_response(
+                user_message=user_query,
+                ai_response=conversation_result['response'],
+                conversation_context={
+                    'memories_used': conversation_result['memories_used'],
+                    'processing_time': conversation_result['processing_time_ms'],
+                    'lstm_stats': conversation_result['lstm_stats']
+                }
+            )
+            
+            # Collect metrics
+            await self.metrics_collector.record_interaction(
+                user_id=user_id,
+                conversation_id=conversation_result['conversation_id'],
+                quality_metrics=quality_analysis,
+                response_time=conversation_result['processing_time_ms']
+            )
+            
+            # Generate feedback
+            feedback = await self.feedback_engine.generate_improvement_feedback(
+                quality_analysis,
+                conversation_result['memory_context']
+            )
+            
+            # Update pipeline statistics
+            processing_time = (datetime.utcnow() - start_time).total_seconds()
+            self.pipeline_stats['processing_times'].append(processing_time)
+            self.pipeline_stats['successful_completions'] += 1
+            
+            quality_score = quality_analysis.get('overall_quality', 0.0)
+            current_avg = self.pipeline_stats['average_quality_score']
+            total_completions = self.pipeline_stats['successful_completions']
+            self.pipeline_stats['average_quality_score'] = (
+                (current_avg * (total_completions - 1) + quality_score) / total_completions
+            )
+            
+            # Compile complete result
+            complete_result = {
+                **conversation_result,
+                'quality_analysis': quality_analysis,
+                'component7_feedback': feedback,
+                'pipeline_performance': {
+                    'total_processing_time_ms': processing_time * 1000,
+                    'phase1_time_ms': conversation_result['processing_time_ms'],
+                    'phase2_time_ms': (processing_time * 1000) - conversation_result['processing_time_ms'],
+                    'quality_score': quality_score,
+                    'pipeline_efficiency': self._calculate_efficiency_score(conversation_result, quality_analysis)
+                },
+                'integration_summary': {
+                    'workflow': 'User Query → LSTM Memory Gates → Gemini Engine → Quality Analysis → Enhanced Response',
+                    'components_active': ['Component5_LSTM', 'Component6_Gemini', 'Component7_Analysis'],
+                    'pipeline_version': '1.0.0',
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+            }
+            
+            print(f"\n✅ Complete Integration Pipeline Successful!")
+            print(f"   📚 LSTM Memories Used: {conversation_result['memories_used']}")
+            print(f"   🤖 Gemini Response: {len(conversation_result['response'])} chars")
+            print(f"   📊 Quality Score: {quality_score:.3f}")
+            print(f"   ⏱️ Total Time: {processing_time:.2f}s")
+            
+            return complete_result
+            
+        except Exception as e:
+            print(f"❌ Complete integration pipeline failed: {e}")
+            return {
+                'error': str(e),
+                'user_id': user_id,
+                'user_query': user_query,
+                'pipeline_stage': 'integration_failure',
+                'timestamp': datetime.utcnow().isoformat()
+            }
+    
+    def _calculate_efficiency_score(self, conv_result: Dict, quality_analysis: Dict) -> float:
+        """Calculate pipeline efficiency score"""
+        # Factors: processing time, memory utilization, response quality
+        time_efficiency = max(0, 1.0 - (conv_result['processing_time_ms'] / 10000))  # Penalty after 10s
+        memory_efficiency = min(1.0, conv_result['memories_used'] / 5)  # Optimal around 5 memories
+        quality_efficiency = quality_analysis.get('overall_quality', 0.0)
         
-        retriever = MockComponent5Interface()
-        memories = await retriever.get_memory_context("demo_user", "Hello", "demo_conv_001")
-        print(f"✅ Retrieved {len(memories.selected_memories)} mock memories")
+        return (time_efficiency * 0.3 + memory_efficiency * 0.2 + quality_efficiency * 0.5)
+
+async def main():
+    """Demo of complete integration"""
+    print("🌟 Component 5 → 6 → 7 Complete Integration Demo")
+    print("=" * 80)
+    
+    # Initialize integration
+    integration = Complete5to6to7Integration()
+    await integration.initialize()
+    
+    # Demo queries
+    demo_queries = [
+        {
+            'user_id': '123',
+            'query': 'How did my English exam go and what should I focus on next?'
+        },
+        {
+            'user_id': '123',
+            'query': 'I\'m feeling nervous about my upcoming date with Ninad. Any advice?'
+        },
+        {
+            'user_id': '123',
+            'query': 'Can you help me understand what I learned recently?'
+        }
+    ]
+    
+    # Process each query through complete pipeline
+    for i, demo in enumerate(demo_queries, 1):
+        print(f"\n🔄 Processing Demo Query {i}/{len(demo_queries)}")
         
-        # 4. Test Schema Creation
-        print("\n📊 Testing Schema Creation")
-        print("-" * 40)
-        
-        user_profile = UserProfile(
-            user_id="demo_user",
-            communication_style=CommunicationStyle.FRIENDLY,
-            preferred_response_length="moderate",
-            emotional_matching=True,
-            humor_preference=0.7,
-            formality_level=0.3,
-            conversation_depth=0.8,
-            proactive_engagement=True
+        result = await integration.process_complete_workflow(
+            user_id=demo['user_id'],
+            user_query=demo['query']
         )
         
-        context = ConversationContext(
-            user_id="demo_user",
-            conversation_id="demo_conv_001",
-            personality_profile=user_profile
-        )
+        if 'error' not in result:
+            print(f"\n💬 Final Response:")
+            print(f"   {result['response'][:200]}...")
         
-        print("✅ User profile and conversation context created successfully")
-        print(f"   User ID: {context.user_id}")
-        print(f"   Style: {context.personality_profile.communication_style}")
-        print(f"   Response Length: {context.personality_profile.preferred_response_length}")
-        
-        # 5. Test Memory Context Processing
-        print("\n💾 Testing Memory Context Processing")
-        print("-" * 40)
-        
-        # Simulate Component 5 output
-        memory_context = MemoryContext(
-            selected_memories=memories.selected_memories,
-            relevance_scores=memories.relevance_scores,
-            token_usage=memories.token_usage,
-            assembly_metadata=memories.assembly_metadata
-        )
-        
-        print("✅ Memory context processed successfully")
-        print(f"   Memories: {len(memory_context.selected_memories)}")
-        print(f"   Token usage: {memory_context.token_usage}")
-        
-        print("\n🎉 All basic functionality tests passed!")
-        print("=" * 50)
-        
-    except Exception as e:
-        print(f"\n❌ Error during demo: {e}")
-        print("This might indicate an issue with the implementation")
-        return False
+        print(f"\n" + "="*40)
     
-    return True
-
-async def demo_advanced_features():
-    """Demo advanced features (requires proper environment setup)"""
-    print("\n🚀 Gemini Engine Demo - Advanced Features")
-    print("=" * 50)
-    print("⚠️  Note: This demo requires proper environment configuration")
-    print("   Set up your .env file with API keys to test these features")
-    
-    try:
-        # Test personality engine
-        from component6.personality_engine import PersonalityEngine
-        
-        personality_engine = PersonalityEngine()
-        print("✅ Personality Engine initialized")
-        
-        # Test context assembler
-        from component6.context_assembler import ContextAssembler
-        
-        context_assembler = ContextAssembler()
-        print("✅ Context Assembler initialized")
-        
-        # Test proactive engine
-        from component6.proactive_engine import ProactiveEngine
-        
-        proactive_engine = ProactiveEngine()
-        print("✅ Proactive Engine initialized")
-        
-        print("\n🎯 Advanced components are ready for testing!")
-        print("   Configure your environment and run full tests")
-        
-    except Exception as e:
-        print(f"\n⚠️  Advanced features demo: {e}")
-        print("   This is expected without proper configuration")
-
-def main():
-    """Main demo function"""
-    print("🌟 Welcome to the Gemini Engine Demo!")
-    print("This script demonstrates the basic functionality of Components 6 & 7")
-    
-    # Run basic demo
-    success = asyncio.run(demo_basic_functionality())
-    
-    if success:
-        # Run advanced demo
-        asyncio.run(demo_advanced_features())
-        
-        print("\n📚 Next Steps:")
-        print("1. Copy env.example to .env")
-        print("2. Configure your API keys and database settings")
-        print("3. Run: python -m pytest tests/ -v")
-        print("4. Test real conversations with: python demo_conversation.py")
-    
-    else:
-        print("\n🔧 Troubleshooting:")
-        print("1. Check that all modules are properly implemented")
-        print("2. Verify Python path includes the project directory")
-        print("3. Run: python test_basic.py")
+    # Show pipeline statistics
+    print(f"\n📈 Pipeline Statistics:")
+    print(f"   Total Queries: {integration.pipeline_stats['total_queries_processed']}")
+    print(f"   Successful: {integration.pipeline_stats['successful_completions']}")
+    print(f"   Average Quality: {integration.pipeline_stats['average_quality_score']:.3f}")
+    print(f"   Success Rate: {integration.pipeline_stats['successful_completions']/integration.pipeline_stats['total_queries_processed']:.1%}")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

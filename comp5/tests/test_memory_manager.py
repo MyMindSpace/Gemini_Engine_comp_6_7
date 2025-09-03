@@ -7,10 +7,14 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from typing import List, Dict, Any
 
 # Import the components we're testing
-from ..core.memory_manager import MemoryManager
-from ..models.memory_item import MemoryItem
-from ..config.settings import LSTMConfig
-from ..core.gate_networks import LSTMGateNetwork
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.memory_manager import MemoryManager
+from models.memory_item import MemoryItem
+from config.settings import LSTMConfig
+from core.gate_networks import LSTMGateNetwork
 
 class TestMemoryManager:
     """Test suite for MemoryManager class"""

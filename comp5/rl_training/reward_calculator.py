@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 
-from ..models.rl_experience import RLReward
+from models.rl_experience import RLReward
 
 logger = logging.getLogger(__name__)
 

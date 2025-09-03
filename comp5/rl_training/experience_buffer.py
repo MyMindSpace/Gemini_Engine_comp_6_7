@@ -17,8 +17,8 @@ import asyncio
 from datetime import datetime, timedelta
 import logging
 
-from ..models.rl_experience import RLExperience, ExperienceBatch
-from ..database.astra_connector import AstraDBConnector
+from models.rl_experience import RLExperience, ExperienceBatch
+from database.astra_connector import AstraDBConnector
 
 logger = logging.getLogger(__name__)
 

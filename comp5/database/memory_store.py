@@ -13,10 +13,10 @@ from datetime import datetime, timedelta
 import uuid
 from dataclasses import asdict
 
-from .astra_connector import AstraDBConnector
-from ..models.memory_item import MemoryItem
-from ..utils.similarity import SimilarityCalculator
-from ..utils.token_counter import estimate_tokens
+from database.astra_connector import AstraDBConnector
+from models.memory_item import MemoryItem
+from utils.similarity import SimilarityCalculator
+from utils.token_counter import estimate_tokens
 
 logger = logging.getLogger(__name__)
 
