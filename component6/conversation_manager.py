@@ -23,6 +23,9 @@ from config.settings import settings
 from .memory_retriever import MemoryRetriever
 from .context_assembler import ContextAssembler
 from .gemini_client import GeminiClient
+from .personality_engine import PersonalityEngine
+from .proactive_engine import ProactiveEngine
+from .response_processor import ResponseProcessor
 
 
 class ConversationManager:
@@ -36,6 +39,9 @@ class ConversationManager:
         self.memory_retriever = MemoryRetriever(component5_interface)
         self.context_assembler = ContextAssembler()
         self.gemini_client = GeminiClient()
+        self.personality_engine = PersonalityEngine()
+        self.proactive_engine = ProactiveEngine()
+        self.response_processor = ResponseProcessor()
         
         # Conversation state tracking
         self.active_conversations = {}
@@ -76,30 +82,52 @@ class ConversationManager:
                 user_id, conversation_id, emotional_state, conversation_goals
             )
             
+            # Adapt AI personality based on user profile and context
+            personality_adaptation = await self.personality_engine.adapt_personality(
+                conversation_context.personality_profile,
+                conversation_context,
+                emotional_state
+            )
+            
             # Retrieve relevant memories
             memory_context = await self._retrieve_memories(
                 user_id, user_message, conversation_context.conversation_id
             )
             
-            # Update conversation context with memories
+            # Update conversation context with memories and personality adaptation
             conversation_context.memories = memory_context.selected_memories
             conversation_context.last_updated = datetime.utcnow()
             
-            # Assemble context for Gemini
+            # Assemble context for Gemini with personality adaptation
             gemini_request = await self._assemble_context(
-                conversation_context, user_message
+                conversation_context, user_message, personality_adaptation
             )
             
-            # Generate AI response
-            ai_response = await self._generate_ai_response(gemini_request)
+            # Generate raw AI response
+            raw_ai_response = await self._generate_ai_response(gemini_request)
+            
+            # Process and enhance the response
+            enhanced_response = await self.response_processor.process_response(
+                raw_ai_response.enhanced_response,
+                conversation_context,
+                {
+                    "personality_adaptation": personality_adaptation,
+                    "memory_context": memory_context.assembly_metadata
+                }
+            )
             
             # Update conversation history
             await self._update_conversation_history(
-                conversation_context, user_message, ai_response
+                conversation_context, user_message, enhanced_response
             )
             
             # Update memory access tracking
             await self._update_memory_access(memory_context, user_id)
+            
+            # Check for proactive engagement opportunities
+            await self._check_proactive_opportunities(
+                user_id, conversation_context, emotional_state
+            )
             
             # Update performance metrics
             self._update_performance_metrics(start_time, True)
@@ -107,10 +135,11 @@ class ConversationManager:
             self.logger.info(f"Conversation processed successfully", extra={
                 "correlation_id": correlation_id,
                 "processing_time_ms": (datetime.utcnow() - start_time).total_seconds() * 1000,
-                "response_length": len(ai_response.enhanced_response)
+                "response_length": len(enhanced_response.enhanced_response),
+                "quality_score": enhanced_response.quality_metrics.get("overall_quality_score", 0.0)
             })
             
-            return ai_response
+            return enhanced_response
             
         except Exception as e:
             # Update performance metrics
@@ -213,10 +242,18 @@ class ConversationManager:
     async def _assemble_context(
         self,
         conversation_context: ConversationContext,
-        user_message: str
+        user_message: str,
+        personality_adaptation: Optional[Dict[str, Any]] = None
     ) -> Any:
-        """Assemble context for Gemini API request"""
+        """Assemble context for Gemini API request with personality adaptation"""
         try:
+            # Update conversation context with personality adaptation if provided
+            if personality_adaptation:
+                # Store personality adaptation in context metadata
+                if not hasattr(conversation_context, 'context_metadata'):
+                    conversation_context.context_metadata = {}
+                conversation_context.context_metadata['personality_adaptation'] = personality_adaptation
+            
             gemini_request = await with_timeout(
                 self.context_assembler.assemble_context(
                     conversation_context=conversation_context,
@@ -239,16 +276,16 @@ class ConversationManager:
     async def _generate_ai_response(self, gemini_request: Any) -> EnhancedResponse:
         """Generate AI response using Gemini"""
         try:
-            response = await with_timeout(
-                self.gemini_client.generate_response(gemini_request),
-                timeout_seconds=settings.performance.total_response_timeout_ms / 1000,
-                default_value=None
-            )
+            self.logger.info(f"Making Gemini API call with timeout: {settings.performance.total_response_timeout_ms / 1000}s")
             
-            if not response:
-                raise RuntimeError("AI response generation failed")
-            
-            return response
+            # Try the call without timeout first to see the actual error
+            try:
+                response = await self.gemini_client.generate_response(gemini_request)
+                self.logger.info("Gemini API call succeeded without timeout wrapper")
+                return response
+            except Exception as api_error:
+                self.logger.error(f"Direct Gemini API call failed: {api_error}")
+                raise
             
         except Exception as e:
             self.logger.error(f"AI response generation failed: {e}")
@@ -264,7 +301,7 @@ class ConversationManager:
         history_entry = {
             "timestamp": datetime.utcnow(),
             "user_message": user_message,
-            "ai_response": ai_response.processed_response,
+            "ai_response": ai_response.enhanced_response,
             "response_id": ai_response.response_id
         }
         
@@ -424,6 +461,96 @@ class ConversationManager:
             self.logger.info(f"Cleaned up {len(conversations_to_remove)} old conversations")
         
         return len(conversations_to_remove)
+    
+    async def _check_proactive_opportunities(
+        self,
+        user_id: str,
+        conversation_context: ConversationContext,
+        emotional_state: Optional[Dict[str, Any]]
+    ) -> None:
+        """Check for proactive engagement opportunities"""
+        try:
+            # Gather activity data for pattern analysis
+            activity_data = {
+                "session_count": len(conversation_context.recent_history),
+                "avg_session_length": self._calculate_avg_session_length(conversation_context),
+                "last_interaction": conversation_context.last_updated
+            }
+            
+            # Prepare emotional history
+            emotional_history = []
+            if emotional_state:
+                emotional_history.append({
+                    "timestamp": datetime.utcnow(),
+                    "primary_emotion": emotional_state.get("primary_emotion", "neutral"),
+                    "stress_level": emotional_state.get("stress_level", 5),
+                    "intensity": emotional_state.get("intensity", 0.5)
+                })
+            
+            # Analyze patterns and identify opportunities
+            patterns = await self.proactive_engine.analyze_user_patterns(
+                user_id, activity_data, emotional_history
+            )
+            
+            # Generate proactive messages for identified opportunities
+            for opportunity in patterns.get("intervention_opportunities", []):
+                message = await self.proactive_engine.generate_proactive_message(
+                    user_id=user_id,
+                    trigger_event=opportunity["trigger"],
+                    context=opportunity["context"],
+                    user_profile=conversation_context.personality_profile
+                )
+                
+                if message:
+                    self.logger.info(f"Proactive message generated for user {user_id}: {opportunity['type']}")
+        
+        except Exception as e:
+            self.logger.error(f"Error checking proactive opportunities: {e}")
+    
+    def _calculate_avg_session_length(self, conversation_context: ConversationContext) -> float:
+        """Calculate average session length from conversation history"""
+        if not conversation_context.recent_history:
+            return 0.0
+        
+        total_length = 0
+        for exchange in conversation_context.recent_history:
+            user_msg = exchange.get("user_message", "")
+            ai_msg = exchange.get("ai_response", "")
+            total_length += len(user_msg) + len(ai_msg)
+        
+        return total_length / len(conversation_context.recent_history) if conversation_context.recent_history else 0.0
+    
+    async def get_proactive_messages(self, user_id: str) -> List[Any]:
+        """Get pending proactive messages for a user"""
+        try:
+            return await self.proactive_engine.get_pending_messages(user_id)
+        except Exception as e:
+            self.logger.error(f"Error getting proactive messages: {e}")
+            return []
+    
+    async def mark_proactive_message_delivered(self, message_id: str, user_id: str) -> bool:
+        """Mark a proactive message as delivered"""
+        try:
+            return await self.proactive_engine.mark_message_delivered(message_id, user_id)
+        except Exception as e:
+            self.logger.error(f"Error marking proactive message as delivered: {e}")
+            return False
+    
+    def get_component_performance_metrics(self) -> Dict[str, Any]:
+        """Get performance metrics from all components"""
+        try:
+            return {
+                "conversation_manager": self.conversation_metrics,
+                "memory_retriever": self.memory_retriever.get_performance_metrics(),
+                "context_assembler": self.context_assembler.get_performance_metrics(),
+                "personality_engine": self.personality_engine.get_performance_metrics(),
+                "proactive_engine": self.proactive_engine.get_performance_metrics(),
+                "response_processor": self.response_processor.get_performance_metrics(),
+                "gemini_client": self.gemini_client.get_performance_metrics() if hasattr(self.gemini_client, 'get_performance_metrics') else {}
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting performance metrics: {e}")
+            return {}
     
     async def close(self):
         """Cleanup resources"""

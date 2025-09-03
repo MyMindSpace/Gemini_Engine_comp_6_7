@@ -95,13 +95,17 @@ class UserProfile:
     """User personality and communication preferences"""
     user_id: str
     communication_style: CommunicationStyle
-    preferred_response_length: Literal["brief", "moderate", "detailed"]
+    preferred_response_length: Literal["brief", "moderate", "detailed"] = "moderate"
     emotional_matching: bool = True
     cultural_context: Optional[str] = None
     humor_preference: float = 0.5  # 0-1 scale
     formality_level: float = 0.5   # 0-1 scale
     conversation_depth: float = 0.7  # 0-1 scale
     proactive_engagement: bool = True
+    personality_traits: Dict[str, float] = field(default_factory=dict)
+    preferences: Dict[str, Any] = field(default_factory=dict)
+    interaction_history: List[Dict[str, Any]] = field(default_factory=list)
+    last_interaction: Optional[datetime] = None
     last_updated: datetime = field(default_factory=datetime.utcnow)
 
 
@@ -110,6 +114,7 @@ class ConversationContext:
     """Complete conversation state for Gemini integration"""
     user_id: str
     conversation_id: str
+    user_input: Optional[str] = None
     conversation_topic: Optional[str] = None
     conversation_tone: Optional[str] = None
     conversation_goals: List[str] = field(default_factory=list)
@@ -118,6 +123,8 @@ class ConversationContext:
     memories: List[MemoryItem] = field(default_factory=list)
     personality_profile: Optional[UserProfile] = None
     recent_history: List[Dict[str, Any]] = field(default_factory=list)
+    context_metadata: Dict[str, Any] = field(default_factory=dict)
+    message_history: List[Dict[str, Any]] = field(default_factory=list)
     context_window_size: int = 2000
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_updated: datetime = field(default_factory=datetime.utcnow)
@@ -129,13 +136,26 @@ class GeminiRequest:
     conversation_id: str
     user_id: str
     system_prompt: str
-    context_section: str
-    conversation_history: str
-    current_message: str
-    response_guidelines: Dict[str, Any]
-    api_parameters: Dict[str, Any]
-    user_preferences: Dict[str, Any]
+    user_prompt: Optional[str] = None
+    context_section: Optional[str] = None
+    conversation_history: Optional[str] = None
+    current_message: Optional[str] = None
+    temperature: float = 0.7
+    max_tokens: int = 500
+    safety_settings: Dict[str, str] = field(default_factory=dict)
+    response_guidelines: Dict[str, Any] = field(default_factory=dict)
+    api_parameters: Dict[str, Any] = field(default_factory=dict)
+    user_preferences: Dict[str, Any] = field(default_factory=dict)
     token_budget: int = 2000
+    created_at: datetime = field(default_factory=datetime.utcnow)
+
+
+@dataclass
+class ConversationRequest:
+    """Request object for conversation processing"""
+    conversation_context: ConversationContext
+    processing_options: Dict[str, bool] = field(default_factory=dict)
+    response_preferences: Dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.utcnow)
 
 

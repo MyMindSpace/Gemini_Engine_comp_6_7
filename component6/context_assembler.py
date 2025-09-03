@@ -20,7 +20,6 @@ from shared.utils import (
 )
 from config.settings import settings
 
-
 class ContextAssembler:
     """Assembles conversation context for optimal Gemini prompts"""
     

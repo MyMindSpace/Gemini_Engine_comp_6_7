@@ -151,9 +151,14 @@ class MemoryRetriever:
         # Take top memories
         top_memories, top_scores = zip(*sorted_pairs[:max_memories])
         
+        # Apply diversity filtering as specified in documentation
+        final_memories, final_scores = self._apply_diversity_filtering(
+            list(top_memories), list(top_scores), max_memories
+        )
+        
         # Compress memories if needed
         compressed_memories, final_token_usage = compress_memories(
-            list(top_memories),
+            final_memories,
             settings.performance.max_context_tokens,
             self.token_counter
         )
@@ -193,10 +198,18 @@ class MemoryRetriever:
         )
         enhanced_score = enhanced_score * 0.7 + content_relevance * 0.3
         
-        # Recency boost
+        # Recency weighting as specified in documentation
         if 'created_at' in memory:
             age_days = (datetime.utcnow() - memory['created_at']).days
-            recency_boost = max(0.1, 1.0 - (age_days / 365.0) * 0.3)
+            # Enhanced recency weighting algorithm
+            if age_days <= 1:
+                recency_boost = 1.2  # Recent memories get significant boost
+            elif age_days <= 7:
+                recency_boost = 1.1  # This week gets moderate boost
+            elif age_days <= 30:
+                recency_boost = 1.0  # This month is neutral
+            else:
+                recency_boost = max(0.7, 1.0 - (age_days / 365.0) * 0.3)
             enhanced_score *= recency_boost
         
         # Importance boost
@@ -215,6 +228,66 @@ class MemoryRetriever:
             enhanced_score *= (1.0 + access_boost)
         
         return min(1.0, max(0.0, enhanced_score))
+    
+    def _apply_diversity_filtering(
+        self,
+        memories: List[Dict[str, Any]],
+        scores: List[float],
+        max_memories: int
+    ) -> Tuple[List[Dict[str, Any]], List[float]]:
+        """Apply diversity filtering to ensure balanced representation of different memory types"""
+        if len(memories) <= max_memories:
+            return memories, scores
+        
+        # Group memories by type for diversity
+        memory_groups = {}
+        for i, memory in enumerate(memories):
+            memory_type = memory.get('memory_type', 'conversation')
+            if memory_type not in memory_groups:
+                memory_groups[memory_type] = []
+            memory_groups[memory_type].append((memory, scores[i], i))
+        
+        # Calculate target count per type
+        num_types = len(memory_groups)
+        base_per_type = max_memories // num_types
+        remaining_slots = max_memories % num_types
+        
+        diverse_memories = []
+        diverse_scores = []
+        
+        # Select memories from each type
+        for memory_type, type_memories in memory_groups.items():
+            target_count = base_per_type + (1 if remaining_slots > 0 else 0)
+            if remaining_slots > 0:
+                remaining_slots -= 1
+            
+            # Sort by score within type and take top N
+            type_memories.sort(key=lambda x: x[1], reverse=True)
+            selected = type_memories[:target_count]
+            
+            for memory, score, _ in selected:
+                diverse_memories.append(memory)
+                diverse_scores.append(score)
+        
+        # If we still have slots, fill with highest scoring remaining memories
+        if len(diverse_memories) < max_memories:
+            used_indices = set()
+            for memory, score, idx in sum(memory_groups.values(), []):
+                if memory in diverse_memories:
+                    used_indices.add(idx)
+            
+            remaining_memories = [
+                (memories[i], scores[i]) for i in range(len(memories))
+                if i not in used_indices
+            ]
+            remaining_memories.sort(key=lambda x: x[1], reverse=True)
+            
+            slots_left = max_memories - len(diverse_memories)
+            for memory, score in remaining_memories[:slots_left]:
+                diverse_memories.append(memory)
+                diverse_scores.append(score)
+        
+        return diverse_memories, diverse_scores
     
     def _validate_memory_context(self, memory_context: MemoryContext) -> None:
         """Validate memory context data structure"""

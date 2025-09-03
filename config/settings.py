@@ -13,9 +13,9 @@ from pathlib import Path
 @dataclass
 class GeminiAPIConfig:
     """Google Gemini API configuration"""
-    api_key: str
-    model_name: str = "gemini-1.5-pro"
-    base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    api_key: str = "AIzaSyD2WlV2eqqGMvrciq3qh5-F823L6kJlDyM"
+    model_name: str = "gemini-2.5-flash"
+    base_url: str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash"
     max_tokens: int = 2048
     temperature: float = 0.7
     top_p: float = 0.9
@@ -341,15 +341,6 @@ class Settings:
         if not os.getenv("TEST_MODE", "false").lower() == "true":
             if not self.gemini_api.api_key:
                 errors.append("GEMINI_API_KEY is required")
-            
-            if not self.database.pinecone_api_key:
-                errors.append("PINECONE_API_KEY is required")
-            
-            if not self.database.pinecone_environment:
-                errors.append("PINECONE_ENVIRONMENT is required")
-            
-            if not self.database.pinecone_index_name:
-                errors.append("PINECONE_INDEX_NAME is required")
         
         # Validate performance settings
         if self.performance.context_assembly_timeout_ms > self.performance.total_response_timeout_ms:
