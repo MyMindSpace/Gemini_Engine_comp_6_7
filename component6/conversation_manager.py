@@ -26,17 +26,18 @@ from .gemini_client import GeminiClient
 from .personality_engine import PersonalityEngine
 from .proactive_engine import ProactiveEngine
 from .response_processor import ResponseProcessor
+from .comp5_interface import Component5Interface
 
 
 class ConversationManager:
     """Main orchestrator for conversation management in Component 6"""
     
-    def __init__(self, component5_interface: Optional[MockComponent5Interface] = None):
+    def __init__(self, component5_interface: Optional[Component5Interface] = None):
         """Initialize conversation manager"""
         self.logger = get_logger("conversation_manager")
-        
+        comp5_interface = component5_interface or Component5Interface()
         # Initialize sub-components
-        self.memory_retriever = MemoryRetriever(component5_interface)
+        self.memory_retriever = MemoryRetriever(comp5_interface)
         self.context_assembler = ContextAssembler()
         self.gemini_client = GeminiClient()
         self.personality_engine = PersonalityEngine()

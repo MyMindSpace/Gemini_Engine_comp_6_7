@@ -18,15 +18,16 @@ from shared.utils import (
 )
 from shared.mock_interfaces import MockComponent5Interface
 from config.settings import settings
+from .comp5_interface import Component5Interface
 
 
 class MemoryRetriever:
     """Retrieves and processes memory context from Component 5"""
     
-    def __init__(self, component5_interface: Optional[MockComponent5Interface] = None):
+    def __init__(self, component5_interface: Optional[Component5Interface] = None):
         """Initialize memory retriever"""
         self.logger = get_logger("memory_retriever")
-        self.component5 = component5_interface or MockComponent5Interface()
+        self.component5 = component5_interface or Component5Interface()
         self.token_counter = TokenCounter()
         self.cache = {}
         
