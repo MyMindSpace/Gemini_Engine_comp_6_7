@@ -18,7 +18,7 @@ from shared.utils import (
     get_logger, log_execution_time, generate_correlation_id,
     TokenCounter, clean_text, extract_keywords, summarize_text
 )
-from config.settings import settings
+from configu.settings import settings
 
 class ContextAssembler:
     """Assembles conversation context for optimal Gemini prompts"""

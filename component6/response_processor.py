@@ -12,7 +12,7 @@ import logging
 
 from shared.schemas import EnhancedResponse, ConversationContext, UserProfile
 from shared.utils import generate_content_hash, format_timestamp, get_logger
-from config.settings import settings
+from configu.settings import settings
 
 class ResponseProcessor:
     """Processes and enhances raw Gemini responses with advanced quality control"""
