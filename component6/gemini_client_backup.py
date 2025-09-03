@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from dataclasses import asdict
 
+import httpx
+
 try:
     from google import genai
 except ImportError:
@@ -25,7 +27,7 @@ from shared.utils import (
     get_logger, log_execution_time, generate_correlation_id,
     with_timeout, rate_limit_decorator
 )
-from config.settings import settings
+from configu.settings import settings
 from shared.mock_interfaces import MockComponent5Interface
 
 

@@ -51,7 +51,7 @@ class GeminiClient:
 
     def _setup_http_client(self):
         """Setup HTTP client with proper configuration"""
-        from config.settings import settings
+        from configu.settings import settings
         timeout = httpx.Timeout(
             settings.gemini_api.timeout_seconds,
             connect=10.0,
@@ -127,7 +127,7 @@ class GeminiClient:
 
     async def _check_rate_limits(self) -> None:
         """Check and enforce rate limits"""
-        from config.settings import settings
+        from configu.settings import settings
         now = time.time()
         # Check request rate limit
         self.request_timestamps = [
@@ -148,7 +148,7 @@ class GeminiClient:
     def _prepare_api_request(self, gemini_request: GeminiRequest) -> Dict[str, Any]:
         content = []
 
-        from config.settings import settings
+        from configu.settings import settings
 
         # Add system prompt if supported
         if hasattr(settings.gemini_api, 'supports_system_prompt') and settings.gemini_api.supports_system_prompt:

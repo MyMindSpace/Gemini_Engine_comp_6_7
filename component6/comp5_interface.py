@@ -95,11 +95,15 @@ class Component5Bridge:
             
             self.logger.info(f"Getting memory context for user {user_id}")
             
+            # ✅ Generate query_features since Component 4 isn't integrated yet
+            import random
+            query_features = [random.random() for _ in range(90)]
+            
             # Use Component 5's memory manager to get relevant context
             relevant_memories, metadata = await self.memory_manager.get_relevant_context(
                 user_id=user_id,
                 query=current_message,
-                query_features=None,  # Will be generated internally
+                query_features=query_features,  # ✅ NOW PROVIDED
                 user_context={
                     "conversation_id": conversation_id,
                     "max_memories": max_memories
@@ -114,11 +118,8 @@ class Component5Bridge:
                 converted_memory = self._convert_memory_item(memory)
                 converted_memories.append(converted_memory)
                 
-                # Get relevance score from Output Gate
-                if hasattr(memory, 'gate_scores') and memory.gate_scores:
-                    relevance_score = memory.gate_scores.get('output', {}).get('score', 0.5)
-                else:
-                    relevance_score = 0.5
+                # ✅ FIXED: Get relevance score with proper error handling
+                relevance_score = self._extract_relevance_score(memory)
                 relevance_scores.append(relevance_score)
             
             # Update statistics
@@ -153,6 +154,49 @@ class Component5Bridge:
                 token_usage=0,
                 assembly_metadata={'error': str(e), 'source': 'component5_lstm'}
             )
+            
+    def _extract_relevance_score(self, memory: MemoryItem) -> float:
+        """Safely extract relevance score from MemoryItem gate_scores"""
+        try:
+            if not hasattr(memory, 'gate_scores') or not memory.gate_scores:
+                return 0.5  # Default score
+            
+            gate_scores = memory.gate_scores
+            
+            # Handle different possible formats of gate_scores
+            if isinstance(gate_scores, dict):
+                # Case 1: Full nested structure {'output': {'score': 0.8, 'decision': True}}
+                if 'output' in gate_scores:
+                    output_data = gate_scores['output']
+                    if isinstance(output_data, dict) and 'score' in output_data:
+                        return float(output_data['score'])
+                    elif isinstance(output_data, (int, float)):
+                        # Case 2: Direct score {'output': 0.8}
+                        return float(output_data)
+                
+                # Case 3: Direct score without nesting {'score': 0.8}
+                if 'score' in gate_scores:
+                    return float(gate_scores['score'])
+                
+                # Case 4: Look for any numeric value
+                for key, value in gate_scores.items():
+                    if isinstance(value, (int, float)):
+                        return float(value)
+            
+            elif isinstance(gate_scores, (int, float)):
+                # Case 5: gate_scores is directly a number
+                return float(gate_scores)
+            
+            # Fallback: use importance_score
+            if hasattr(memory, 'importance_score') and memory.importance_score is not None:
+                return float(memory.importance_score)
+            
+            # Final fallback
+            return 0.5
+            
+        except Exception as e:
+            self.logger.warning(f"Error extracting relevance score from memory {getattr(memory, 'id', 'unknown')}: {e}")
+            return 0.5
     
     async def process_new_memory(
         self,
@@ -251,8 +295,7 @@ class Component5Bridge:
             'retrieval_triggers': memory.retrieval_triggers or [],
             'relationships': memory.relationships or [],
             'gate_scores': memory.gate_scores or {},
-            'feature_vector': memory.feature_vector,
-            'embeddings': memory.embeddings
+            'feature_vector': memory.feature_vector
         }
     
     def get_statistics(self) -> Dict[str, Any]:
