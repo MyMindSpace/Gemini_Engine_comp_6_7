@@ -13,7 +13,7 @@ from pathlib import Path
 @dataclass
 class GeminiAPIConfig:
     """Google Gemini API configuration"""
-    api_key: str = "AIzaSyD2WlV2eqqGMvrciq3qh5-F823L6kJlDyM"
+    api_key: str
     model_name: str = "gemini-2.5-pro"
     base_url: str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash"
     max_tokens: int = 2048
