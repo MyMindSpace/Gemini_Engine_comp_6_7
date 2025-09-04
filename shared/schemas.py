@@ -158,19 +158,27 @@ class ConversationRequest:
     response_preferences: Dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.utcnow)
 
+# ALSO UPDATE YOUR EnhancedResponse SCHEMA in shared/schemas.py:
+# Replace your existing EnhancedResponse with this:
 
 @dataclass
 class EnhancedResponse:
     """Processed Gemini response with quality metrics"""
     response_id: str
+    conversation_id: str
+    user_id: str
     original_response: str
     enhanced_response: str
-    enhancement_metadata: Dict[str, Any]
-    processing_timestamp: datetime
-    quality_metrics: Dict[str, Any]
-    safety_checks: Dict[str, Any]
-    context_usage: Dict[str, Any]
-
+    enhancement_metadata: Dict[str, Any] = field(default_factory=dict)
+    processing_timestamp: datetime = field(default_factory=datetime.utcnow)
+    quality_metrics: Dict[str, Any] = field(default_factory=dict)
+    safety_checks: Dict[str, Any] = field(default_factory=dict)
+    context_usage: Dict[str, Any] = field(default_factory=dict)
+    response_metadata: Dict[str, Any] = field(default_factory=dict)
+    follow_up_suggestions: List[str] = field(default_factory=list)
+    proactive_suggestions: List[str] = field(default_factory=list)
+    memory_context_metadata: Dict[str, Any] = field(default_factory=dict)
+    response_analysis: Optional['ResponseAnalysis'] = None
 
 @dataclass
 class ProactiveMessage:

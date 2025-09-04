@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from shared.schemas import UserProfile, ConversationContext, CommunicationStyle
 from shared.utils import get_logger, generate_correlation_id, SimpleCache
-from config.settings import settings
+from configu.settings import settings
 
 
 class PersonalityEngine:

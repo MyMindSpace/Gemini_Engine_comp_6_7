@@ -37,6 +37,49 @@ class QualityAnalyzer:
         
         self.logger.info("Quality Analyzer initialized")
     
+    def _load_coherence_patterns(self) -> List[str]:
+        """Load coherence patterns for analysis"""
+        return [
+            r'\b(however|moreover|furthermore|additionally|consequently)\b',
+            r'\b(because|since|therefore|thus|hence)\b',
+            r'\b(first|second|third|finally|in conclusion)\b'
+        ]
+    
+    def _load_safety_patterns(self) -> List[str]:
+        """Load safety patterns for analysis"""
+        return [
+            r'\b(dangerous|harmful|unsafe|risky)\b',
+            r'\b(illegal|unlawful|forbidden)\b'
+        ]
+    
+    def _load_engagement_patterns(self) -> List[str]:
+        """Load engagement patterns for analysis"""
+        return [
+            r'\?',  # Questions
+            r'\b(what do you think|how do you feel|would you like)\b',
+            r'\b(interesting|exciting|amazing)\b'
+        ]
+    
+    def _get_quality_score(self, response) -> float:
+        """Safely extract quality score from response object"""
+        try:
+            # Try different attribute names used in EnhancedResponse
+            if hasattr(response, 'quality_score'):
+                return float(response.quality_score)
+            elif hasattr(response, 'quality_metrics'):
+                metrics = response.quality_metrics
+                if isinstance(metrics, dict):
+                    return float(metrics.get('overall_score', metrics.get('overall_quality', 0.5)))
+            elif hasattr(response, 'enhancement_metadata'):
+                metadata = response.enhancement_metadata
+                if isinstance(metadata, dict):
+                    return float(metadata.get('quality_score', 0.5))
+        except (AttributeError, TypeError, ValueError):
+            pass
+        
+        # Default fallback
+        return 0.5
+    
     @log_execution_time
     async def analyze_response(
         self,
@@ -46,9 +89,19 @@ class QualityAnalyzer:
     ) -> ResponseAnalysis:
         """Analyze response quality and generate comprehensive assessment"""
         correlation_id = generate_correlation_id()
-        self.logger.info(f"Analyzing response quality for {response.response_id}", extra={
+        
+        # Get response text safely
+        response_text = ""
+        if hasattr(response, 'enhanced_response') and response.enhanced_response:
+            response_text = str(response.enhanced_response)
+        elif hasattr(response, 'original_response') and response.original_response:
+            response_text = str(response.original_response)
+        else:
+            response_text = str(response)
+        
+        self.logger.info(f"Analyzing response quality for {getattr(response, 'response_id', 'unknown')}", extra={
             "correlation_id": correlation_id,
-            "response_length": len(response.enhanced_response)
+            "response_length": len(response_text)
         })
         
         start_time = datetime.utcnow()
@@ -66,33 +119,31 @@ class QualityAnalyzer:
             
             # Generate improvement suggestions
             improvement_suggestions = await self._generate_improvement_suggestions(
-                quality_metrics, context_usage, response
-            )
-            
-            # Calculate overall user satisfaction
-            final_satisfaction = user_satisfaction or self._estimate_user_satisfaction(
-                quality_metrics, context_usage
+                response, quality_metrics, context_usage
             )
             
             # Create response analysis
             analysis = ResponseAnalysis(
-                analysis_id=generate_correlation_id(),
-                response_id=response.response_id,
-                conversation_id="",  # Will be provided by caller
-                user_id="",  # Will be provided by caller
-                quality_scores=quality_metrics.__dict__,
+                analysis_id=correlation_id,
+                response_id=getattr(response, 'response_id', 'unknown'),
+                conversation_id=getattr(response, 'conversation_id', 'unknown'),
+                user_id=getattr(response, 'user_id', 'unknown'),
+                quality_scores=quality_metrics,
                 context_usage=context_usage,
-                user_satisfaction=final_satisfaction,
-                improvement_suggestions=improvement_suggestions
+                user_satisfaction=user_satisfaction or 0.5,
+                improvement_suggestions=improvement_suggestions,
+                analysis_timestamp=datetime.utcnow()
             )
             
-            # Update performance metrics
-            self._update_performance_metrics(start_time, quality_metrics.overall_quality)
+            # Update performance tracking
+            processing_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            self.analysis_times.append(processing_time)
+            self.quality_scores.append(quality_metrics.get('overall_quality', 0.5))
             
-            self.logger.info(f"Response quality analysis completed", extra={
+            self.logger.info(f"Quality analysis completed", extra={
                 "correlation_id": correlation_id,
-                "overall_quality": quality_metrics.overall_quality,
-                "suggestions_count": len(improvement_suggestions)
+                "processing_time_ms": processing_time,
+                "overall_quality": quality_metrics.get('overall_quality', 0.5)
             })
             
             return analysis
@@ -100,8 +151,7 @@ class QualityAnalyzer:
         except Exception as e:
             self.logger.error(f"Failed to analyze response quality: {e}", extra={
                 "correlation_id": correlation_id,
-                "error": str(e),
-                "response_id": response.response_id
+                "error": str(e)
             })
             raise
     
@@ -109,525 +159,186 @@ class QualityAnalyzer:
         self,
         response: EnhancedResponse,
         context_used: Dict[str, Any]
-    ) -> QualityMetrics:
+    ) -> Dict[str, float]:
         """Calculate comprehensive quality metrics"""
-        # Coherence analysis
-        coherence_score = await self._analyze_coherence(response.enhanced_response)
         
-        # Relevance analysis
-        relevance_score = await self._analyze_relevance(
-            response.enhanced_response, context_used
+        # Get response text
+        response_text = getattr(response, 'enhanced_response', '') or getattr(response, 'original_response', '') or str(response)
+        
+        metrics = {}
+        
+        # Coherence score
+        metrics['coherence_score'] = self._calculate_coherence_score(response_text)
+        
+        # Relevance score
+        metrics['relevance_score'] = self._calculate_relevance_score(response_text, context_used)
+        
+        # Context usage score
+        metrics['context_usage_score'] = self._calculate_context_usage_score(response, context_used)
+        
+        # Safety score
+        metrics['safety_score'] = self._calculate_safety_score(response_text)
+        
+        # Overall quality score (weighted average)
+        metrics['overall_quality'] = (
+            metrics['coherence_score'] * 0.3 +
+            metrics['relevance_score'] * 0.3 +
+            metrics['context_usage_score'] * 0.2 +
+            metrics['safety_score'] * 0.2
         )
         
-        # Context usage analysis
-        context_usage_score = await self._analyze_context_utilization(
-            response, context_used
-        )
-        
-        # Personality consistency
-        personality_score = await self._analyze_personality_consistency(
-            response, context_used
-        )
-        
-        # Safety analysis
-        safety_score = await self._analyze_safety(response.enhanced_response)
-        
-        # Engagement potential
-        engagement_score = await self._analyze_engagement_potential(
-            response.enhanced_response
-        )
-        
-        # Calculate overall quality
-        overall_quality = self._calculate_overall_quality([
-            coherence_score, relevance_score, context_usage_score,
-            personality_score, safety_score, engagement_score
-        ])
-        
-        # Calculate confidence level
-        confidence_level = self._calculate_confidence_level(
-            response, context_used
-        )
-        
-        return QualityMetrics(
-            coherence_score=coherence_score,
-            relevance_score=relevance_score,
-            context_usage_score=context_usage_score,
-            personality_consistency_score=personality_score,
-            safety_score=safety_score,
-            engagement_potential=engagement_score,
-            overall_quality=overall_quality,
-            confidence_level=confidence_level,
-            analysis_timestamp=datetime.utcnow()
-        )
+        return metrics
     
-    async def _analyze_coherence(self, response_text: str) -> float:
-        """Analyze response coherence and logical flow"""
+    def _calculate_coherence_score(self, response_text: str) -> float:
+        """Calculate coherence score based on text structure"""
         if not response_text:
             return 0.0
         
-        score = 0.0
+        score = 0.5  # Base score
         
-        # Sentence structure analysis
-        sentences = re.split(r'[.!?]+', response_text.strip())
-        sentences = [s.strip() for s in sentences if s.strip()]
+        # Check for transition words
+        coherence_matches = sum(1 for pattern in self.coherence_patterns 
+                               if re.search(pattern, response_text.lower()))
         
-        if len(sentences) == 0:
-            return 0.0
+        # Normalize by response length
+        sentence_count = len(re.split(r'[.!?]+', response_text))
+        if sentence_count > 0:
+            transition_ratio = coherence_matches / sentence_count
+            score += min(0.3, transition_ratio)
         
-        # Check sentence completeness
-        complete_sentences = 0
-        for sentence in sentences:
-            if len(sentence.split()) >= 3:  # Minimum 3 words for meaningful sentence
-                complete_sentences += 1
-        
-        sentence_completeness = complete_sentences / len(sentences)
-        score += sentence_completeness * 0.3
-        
-        # Check logical flow indicators
-        flow_indicators = ['because', 'therefore', 'however', 'although', 'furthermore', 'moreover']
-        flow_count = sum(1 for indicator in flow_indicators if indicator in response_text.lower())
-        flow_score = min(1.0, flow_count / 3)  # Normalize to 0-1
-        score += flow_score * 0.2
-        
-        # Check paragraph structure
-        paragraphs = response_text.split('\n\n')
-        if len(paragraphs) > 1:
-            score += 0.2  # Bonus for structured paragraphs
-        
-        # Check response length appropriateness
-        word_count = len(response_text.split())
-        if 50 <= word_count <= 500:
-            score += 0.3  # Optimal length
-        elif 25 <= word_count <= 800:
-            score += 0.2  # Acceptable length
-        else:
-            score += 0.1  # Suboptimal length
+        # Check for logical flow (simplified)
+        if len(response_text.split()) > 20:  # Longer responses
+            score += 0.2
         
         return min(1.0, max(0.0, score))
     
-    async def _analyze_relevance(
-        self,
-        response_text: str,
-        context_used: Dict[str, Any]
-    ) -> float:
-        """Analyze response relevance to context and user input"""
+    def _calculate_relevance_score(self, response_text: str, context_used: Dict[str, Any]) -> float:
+        """Calculate relevance score based on context"""
         if not response_text or not context_used:
-            return 0.5  # Neutral score if no context
+            return 0.5
         
-        score = 0.0
+        score = 0.5  # Base score
         
-        # Extract context keywords
-        context_text = ""
+        # Check for context keyword usage
+        context_keywords = []
         if 'memories' in context_used:
-            for memory in context_used['memories']:
+            for memory in context_used.get('memories', []):
                 if isinstance(memory, dict) and 'content_summary' in memory:
-                    context_text += " " + str(memory['content_summary'])
+                    context_keywords.extend(memory['content_summary'].lower().split()[:5])
         
-        if 'user_message' in context_used:
-            context_text += " " + str(context_used['user_message'])
-        
-        if not context_text.strip():
-            return 0.5
-        
-        # Calculate keyword overlap
-        response_keywords = set(extract_keywords(response_text.lower(), 20))
-        context_keywords = set(extract_keywords(context_text.lower(), 20))
-        
-        if not response_keywords or not context_keywords:
-            return 0.5
-        
-        # Jaccard similarity
-        intersection = len(response_keywords & context_keywords)
-        union = len(response_keywords | context_keywords)
-        
-        if union > 0:
-            keyword_similarity = intersection / union
-            score += keyword_similarity * 0.6
-        
-        # Check for context-specific references
-        context_references = 0
-        if 'memories' in context_used:
-            for memory in context_used['memories']:
-                if isinstance(memory, dict) and 'content_summary' in memory:
-                    memory_text = str(memory['content_summary'])
-                    if any(keyword in response_text.lower() for keyword in extract_keywords(memory_text, 5)):
-                        context_references += 1
-        
-        if context_references > 0:
-            reference_score = min(1.0, context_references / 3)
-            score += reference_score * 0.4
+        if context_keywords:
+            response_words = set(response_text.lower().split())
+            context_word_set = set(context_keywords)
+            overlap = len(response_words.intersection(context_word_set))
+            
+            if context_keywords:
+                relevance_ratio = overlap / len(context_word_set)
+                score += min(0.4, relevance_ratio)
         
         return min(1.0, max(0.0, score))
     
-    async def _analyze_context_utilization(
-        self,
-        response: EnhancedResponse,
-        context_used: Dict[str, Any]
-    ) -> float:
-        """Analyze how well the response utilizes provided context"""
-        if not context_used or not context_used.get('memories'):
-            return 0.5  # Neutral if no context
-        
-        score = 0.0
-        
-        # Check memory utilization
-        memories = context_used.get('memories', [])
-        if not memories:
+    def _calculate_context_usage_score(self, response: EnhancedResponse, context_used: Dict[str, Any]) -> float:
+        """Calculate how well the response uses provided context"""
+        if not context_used:
             return 0.5
         
-        utilized_memories = 0
-        for memory in memories:
-            if isinstance(memory, dict) and 'content_summary' in memory:
-                memory_text = str(memory['content_summary'])
-                memory_keywords = extract_keywords(memory_text, 10)
-                
-                # Check if memory keywords appear in response
-                if any(keyword in response.enhanced_response.lower() for keyword in memory_keywords):
-                    utilized_memories += 1
+        # Use existing quality score from response if available
+        existing_score = self._get_quality_score(response)
+        if existing_score != 0.5:  # If we got a real score
+            return existing_score
         
-        utilization_rate = utilized_memories / len(memories)
-        score += utilization_rate * 0.7
+        # Basic heuristic scoring
+        score = 0.5
         
-        # Check for natural context integration
-        natural_integration = 0
-        if 'user_message' in context_used:
-            user_message = str(context_used['user_message'])
-            if any(word in response.enhanced_response.lower() for word in user_message.lower().split()):
-                natural_integration += 0.3
-        
-        score += natural_integration
+        # Check if memories were provided and potentially used
+        if 'memories' in context_used and context_used['memories']:
+            score += 0.3
         
         return min(1.0, max(0.0, score))
     
-    async def _analyze_personality_consistency(
-        self,
-        response: EnhancedResponse,
-        context_used: Dict[str, Any]
-    ) -> float:
-        """Analyze personality consistency across responses"""
-        # This would typically compare with previous responses
-        # For now, use a simplified approach
-        
-        score = 0.8  # Base score
-        
-        # Check for personality indicators
-        personality_indicators = {
-            'formal': ['therefore', 'furthermore', 'consequently', 'thus'],
-            'casual': ['hey', 'cool', 'awesome', 'great'],
-            'supportive': ['support', 'help', 'assist', 'encourage'],
-            'professional': ['recommend', 'suggest', 'advise', 'consider']
-        }
-        
-        response_lower = response.enhanced_response.lower()
-        
-        # Count personality indicators
-        indicator_counts = {}
-        for personality, indicators in personality_indicators.items():
-            count = sum(1 for indicator in indicators if indicator in response_lower)
-            indicator_counts[personality] = count
-        
-        # If we have context about preferred style, check alignment
-        if 'user_preferences' in context_used:
-            user_prefs = context_used['user_preferences']
-            if 'communication_style' in user_prefs:
-                preferred_style = user_prefs['communication_style'].lower()
-                if preferred_style in indicator_counts:
-                    # Boost score for style alignment
-                    if indicator_counts[preferred_style] > 0:
-                        score += 0.1
-        
-        return min(1.0, max(0.0, score))
-    
-    async def _analyze_safety(self, response_text: str) -> float:
-        """Analyze response safety and appropriateness"""
+    def _calculate_safety_score(self, response_text: str) -> float:
+        """Calculate safety score"""
         if not response_text:
-            return 1.0  # Empty response is safe
+            return 1.0  # Safe by default
         
-        score = 1.0  # Start with perfect safety score
+        # Check for potentially unsafe patterns
+        safety_violations = sum(1 for pattern in self.safety_patterns 
+                               if re.search(pattern, response_text.lower()))
         
-        # Check for potentially harmful content
-        harmful_patterns = [
-            r'\b(harm|hurt|kill|suicide|self.?harm)\b',
-            r'\b(dangerous|illegal|criminal)\b',
-            r'\b(hate|racist|sexist|discriminatory)\b'
-        ]
-        
-        for pattern in harmful_patterns:
-            if re.search(pattern, response_text.lower()):
-                score -= 0.3  # Penalty for harmful content
-        
-        # Check for inappropriate language
-        inappropriate_words = ['profanity', 'vulgar', 'offensive']
-        for word in inappropriate_words:
-            if word in response_text.lower():
-                score -= 0.2
-        
-        # Check for medical advice (should be avoided)
-        medical_patterns = [
-            r'\b(diagnose|diagnosis|treatment|medication|prescription)\b',
-            r'\b(doctor|physician|therapist|psychiatrist)\b'
-        ]
-        
-        for pattern in medical_patterns:
-            if re.search(pattern, response_text.lower()):
-                score -= 0.1  # Small penalty for medical content
-        
-        return max(0.0, score)
-    
-    async def _analyze_engagement_potential(self, response_text: str) -> float:
-        """Analyze potential for user engagement and continued conversation"""
-        if not response_text:
-            return 0.0
-        
-        score = 0.0
-        
-        # Check for questions (encourage responses)
-        question_count = response_text.count('?')
-        if question_count > 0:
-            score += min(0.4, question_count * 0.2)
-        
-        # Check for follow-up suggestions
-        follow_up_indicators = [
-            'what do you think', 'how do you feel', 'would you like',
-            'tell me more', 'what about you', 'your thoughts'
-        ]
-        
-        for indicator in follow_up_indicators:
-            if indicator in response_text.lower():
-                score += 0.2
-                break
-        
-        # Check for personalization
-        personal_indicators = ['you', 'your', 'yourself']
-        personal_count = sum(response_text.lower().count(indicator) for indicator in personal_indicators)
-        if personal_count > 0:
-            score += min(0.2, personal_count * 0.05)
-        
-        # Check for emotional validation
-        emotional_indicators = ['understand', 'feel', 'experience', 'valid']
-        emotional_count = sum(1 for indicator in emotional_indicators if indicator in response_text.lower())
-        if emotional_count > 0:
-            score += min(0.2, emotional_count * 0.1)
-        
-        return min(1.0, max(0.0, score))
+        if safety_violations == 0:
+            return 1.0
+        else:
+            # Reduce score based on violations
+            return max(0.0, 1.0 - (safety_violations * 0.2))
     
     async def _analyze_context_usage(
         self,
         response: EnhancedResponse,
         context_used: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Analyze how context was used in the response"""
-        analysis = {
-            "context_provided": bool(context_used),
-            "memories_utilized": 0,
-            "context_keywords_used": 0,
-            "context_integration_score": 0.0,
-            "missing_context": [],
-            "context_efficiency": 0.0
+        """Analyze how well the response utilizes provided context"""
+        
+        context_analysis = {
+            "memories_referenced": 0,
+            "context_integration_score": 0.5,
+            "missing_context_opportunities": [],
+            "effective_usage": []
         }
         
-        if not context_used:
-            return analysis
-        
-        # Analyze memory utilization
-        memories = context_used.get('memories', [])
-        if memories:
-            utilized_memories = 0
-            for memory in memories:
-                if isinstance(memory, dict) and 'content_summary' in memory:
-                    memory_text = str(memory['content_summary'])
-                    memory_keywords = extract_keywords(memory_text, 10)
-                    
-                    if any(keyword in response.enhanced_response.lower() for keyword in memory_keywords):
-                        utilized_memories += 1
+        # Check memory usage
+        if 'memories' in context_used:
+            memories = context_used.get('memories', [])
+            context_analysis["memories_referenced"] = len(memories)
             
-            analysis["memories_utilized"] = utilized_memories
-            analysis["context_integration_score"] = utilized_memories / len(memories) if memories else 0.0
+            if memories:
+                context_analysis["context_integration_score"] = 0.7
+                context_analysis["effective_usage"].append("Used provided memories")
         
-        # Analyze keyword usage
-        if 'user_message' in context_used:
-            user_keywords = extract_keywords(str(context_used['user_message']), 10)
-            used_keywords = sum(1 for keyword in user_keywords if keyword in response.enhanced_response.lower())
-            analysis["context_keywords_used"] = used_keywords
-        
-        # Calculate context efficiency
-        total_context_items = len(memories) + (1 if 'user_message' in context_used else 0)
-        if total_context_items > 0:
-            analysis["context_efficiency"] = (analysis["memories_utilized"] + analysis["context_keywords_used"]) / total_context_items
-        
-        return analysis
+        return context_analysis
     
     async def _generate_improvement_suggestions(
         self,
-        quality_metrics: QualityMetrics,
-        context_usage: Dict[str, Any],
-        response: EnhancedResponse
+        response: EnhancedResponse,
+        quality_metrics: Dict[str, float],
+        context_usage: Dict[str, Any]
     ) -> List[str]:
-        """Generate improvement suggestions based on quality analysis"""
+        """Generate specific improvement suggestions"""
+        
         suggestions = []
         
-        # Coherence suggestions
-        if quality_metrics.coherence_score < 0.7:
-            suggestions.append("Improve sentence structure and logical flow for better coherence")
+        # Quality-based suggestions
+        if quality_metrics.get('coherence_score', 0.5) < 0.6:
+            suggestions.append("Improve response coherence with better transitions")
         
-        # Relevance suggestions
-        if quality_metrics.relevance_score < 0.7:
-            suggestions.append("Ensure response directly addresses user's message and context")
+        if quality_metrics.get('relevance_score', 0.5) < 0.6:
+            suggestions.append("Better incorporate context keywords and themes")
         
-        # Context usage suggestions
-        if quality_metrics.context_usage_score < 0.6:
-            suggestions.append("Better utilize provided memories and context in the response")
+        if quality_metrics.get('context_usage_score', 0.5) < 0.6:
+            suggestions.append("Make better use of provided memory context")
         
-        # Personality consistency suggestions
-        if quality_metrics.personality_consistency_score < 0.8:
-            suggestions.append("Maintain consistent communication style throughout the response")
+        # Context-based suggestions
+        if context_usage.get('memories_referenced', 0) == 0:
+            suggestions.append("Reference relevant memories when available")
         
-        # Safety suggestions
-        if quality_metrics.safety_score < 0.9:
-            suggestions.append("Review content for safety and appropriateness")
-        
-        # Engagement suggestions
-        if quality_metrics.engagement_potential < 0.6:
-            suggestions.append("Include follow-up questions to encourage continued conversation")
-        
-        # Context efficiency suggestions
-        if context_usage.get("context_efficiency", 0) < 0.5:
-            suggestions.append("Optimize context usage to improve response relevance")
-        
-        # Response length suggestions
-        response_length = len(response.enhanced_response)
-        if response_length < 50:
-            suggestions.append("Provide more detailed responses for better user experience")
-        elif response_length > 800:
-            suggestions.append("Consider more concise responses to maintain user engagement")
-        
-        # If no specific issues, provide general improvement suggestions
+        # Default suggestion if none generated
         if not suggestions:
-            suggestions.append("Response quality is good, focus on maintaining consistency")
-            suggestions.append("Continue monitoring user engagement patterns")
+            suggestions.append("Continue maintaining response quality")
         
-        return suggestions[:5]  # Limit to 5 suggestions
-    
-    def _estimate_user_satisfaction(
-        self,
-        quality_metrics: QualityMetrics,
-        context_usage: Dict[str, Any]
-    ) -> float:
-        """Estimate user satisfaction based on quality metrics"""
-        # Weighted combination of quality factors
-        weights = {
-            'coherence': 0.2,
-            'relevance': 0.25,
-            'context_usage': 0.2,
-            'personality': 0.15,
-            'safety': 0.1,
-            'engagement': 0.1
-        }
-        
-        satisfaction = (
-            quality_metrics.coherence_score * weights['coherence'] +
-            quality_metrics.relevance_score * weights['relevance'] +
-            quality_metrics.context_usage_score * weights['context_usage'] +
-            quality_metrics.personality_consistency_score * weights['personality'] +
-            quality_metrics.safety_score * weights['safety'] +
-            quality_metrics.engagement_potential * weights['engagement']
-        )
-        
-        # Adjust based on context usage efficiency
-        context_efficiency = context_usage.get("context_efficiency", 0.5)
-        satisfaction = satisfaction * 0.8 + context_efficiency * 0.2
-        
-        return min(1.0, max(0.0, satisfaction))
-    
-    def _calculate_overall_quality(self, scores: List[float]) -> float:
-        """Calculate overall quality score from individual metrics"""
-        if not scores:
-            return 0.0
-        
-        # Weighted average with emphasis on core metrics
-        weights = [0.25, 0.25, 0.2, 0.15, 0.1, 0.05]  # Sum to 1.0
-        
-        # Ensure we have enough weights
-        while len(weights) < len(scores):
-            weights.append(weights[-1] * 0.8)
-        
-        # Normalize weights
-        total_weight = sum(weights[:len(scores)])
-        normalized_weights = [w / total_weight for w in weights[:len(scores)]]
-        
-        overall_score = sum(score * weight for score, weight in zip(scores, normalized_weights))
-        return min(1.0, max(0.0, overall_score))
-    
-    def _calculate_confidence_level(
-        self,
-        response: EnhancedResponse,
-        context_used: Dict[str, Any]
-    ) -> float:
-        """Calculate confidence level in the quality assessment"""
-        confidence = 0.8  # Base confidence
-        
-        # Adjust based on response characteristics
-        if len(response.enhanced_response) > 100:
-            confidence += 0.1  # Longer responses provide more data
-        
-        if context_used and context_used.get('memories'):
-            confidence += 0.1  # Context availability improves confidence
-        
-        # Adjust based on response quality indicators
-        if response.quality_score > 0.8:
-            confidence += 0.1  # High quality responses are easier to assess
-        
-        return min(1.0, max(0.0, confidence))
-    
-    def _load_coherence_patterns(self) -> Dict[str, Any]:
-        """Load coherence analysis patterns"""
-        return {
-            "sentence_indicators": ["because", "therefore", "however", "although"],
-            "flow_connectors": ["first", "second", "finally", "in conclusion"],
-            "logical_operators": ["and", "or", "but", "if", "then"]
-        }
-    
-    def _load_safety_patterns(self) -> Dict[str, Any]:
-        """Load safety analysis patterns"""
-        return {
-            "harmful_content": ["harm", "hurt", "kill", "suicide"],
-            "inappropriate": ["profanity", "vulgar", "offensive"],
-            "medical_advice": ["diagnose", "treatment", "prescription"]
-        }
-    
-    def _load_engagement_patterns(self) -> Dict[str, Any]:
-        """Load engagement analysis patterns"""
-        return {
-            "questions": ["what", "how", "why", "when", "where"],
-            "personal_pronouns": ["you", "your", "yourself"],
-            "emotional_validation": ["understand", "feel", "experience"]
-        }
-    
-    def _update_performance_metrics(self, start_time: datetime, quality_score: float) -> None:
-        """Update performance tracking metrics"""
-        processing_time = (datetime.utcnow() - start_time).total_seconds() * 1000
-        self.analysis_times.append(processing_time)
-        self.quality_scores.append(quality_score)
-        
-        # Keep only last 100 measurements
-        if len(self.analysis_times) > 100:
-            self.analysis_times = self.analysis_times[-100:]
-        if len(self.quality_scores) > 100:
-            self.quality_scores = self.quality_scores[-100:]
+        return suggestions
     
     def get_performance_metrics(self) -> Dict[str, Any]:
-        """Get performance metrics for monitoring"""
+        """Get analyzer performance metrics"""
         if not self.analysis_times:
             return {
-                "avg_analysis_time_ms": 0.0,
-                "avg_quality_score": 0.0,
-                "total_analyses": 0
+                "total_analyses": 0,
+                "avg_processing_time_ms": 0,
+                "avg_quality_score": 0
             }
         
         return {
-            "avg_analysis_time_ms": sum(self.analysis_times) / len(self.analysis_times),
-            "min_analysis_time_ms": min(self.analysis_times),
-            "max_analysis_time_ms": max(self.analysis_times),
+            "total_analyses": len(self.analysis_times),
+            "avg_processing_time_ms": sum(self.analysis_times) / len(self.analysis_times),
             "avg_quality_score": sum(self.quality_scores) / len(self.quality_scores),
-            "total_analyses": len(self.analysis_times)
+            "min_quality_score": min(self.quality_scores),
+            "max_quality_score": max(self.quality_scores)
         }

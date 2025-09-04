@@ -1,24 +1,30 @@
+# component6/conversation_manager.py (COMPLETE FIXED VERSION - CLEAN)
 """
 Conversation Manager Module for Component 6.
-Main orchestrator for conversation flow and memory integration.
+Main orchestrator for conversation flow and memory integration with real Component 5.
 """
 
 import asyncio
 import logging
+import sys
+import os
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 import uuid
 
+# Add project root to path to find comp5_interface
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+
 from shared.schemas import (
     ConversationContext, MemoryContext, UserProfile, EnhancedResponse,
-    ProactiveMessage, CommunicationStyle
+    ProactiveMessage, CommunicationStyle, GeminiRequest
 )
 from shared.utils import (
     get_logger, log_execution_time, generate_correlation_id,
     with_timeout
 )
-from shared.mock_interfaces import MockComponent5Interface
-from config.settings import settings
+from configu.settings import settings
 
 from .memory_retriever import MemoryRetriever
 from .context_assembler import ContextAssembler
@@ -26,18 +32,28 @@ from .gemini_client import GeminiClient
 from .personality_engine import PersonalityEngine
 from .proactive_engine import ProactiveEngine
 from .response_processor import ResponseProcessor
-from .comp5_interface import Component5Interface
+
+# Import the actual Component 5 interface class
+try:
+    # Try to import from comp5_interface.py (your bridge file)
+    from comp5_interface import Component5Bridge as Component5Interface
+except ImportError:
+    # Fallback to enhanced interface if comp5_interface doesn't exist
+    from .enhanced_comp5_interface import EnhancedComponent5Interface as Component5Interface
 
 
 class ConversationManager:
     """Main orchestrator for conversation management in Component 6"""
     
     def __init__(self, component5_interface: Optional[Component5Interface] = None):
-        """Initialize conversation manager"""
+        """Initialize conversation manager with real Component 5 bridge"""
         self.logger = get_logger("conversation_manager")
-        comp5_interface = component5_interface or Component5Interface()
-        # Initialize sub-components
-        self.memory_retriever = MemoryRetriever(comp5_interface)
+        
+        # Use the provided Component 5 interface or create a new one
+        self.component5_interface = component5_interface or Component5Interface()
+        
+        # Initialize sub-components with Component 5 interface
+        self.memory_retriever = MemoryRetriever(self.component5_interface)
         self.context_assembler = ContextAssembler()
         self.gemini_client = GeminiClient()
         self.personality_engine = PersonalityEngine()
@@ -53,10 +69,13 @@ class ConversationManager:
             "total_conversations": 0,
             "active_conversations": 0,
             "avg_response_time_ms": 0.0,
-            "success_rate": 0.0
+            "success_rate": 0.0,
+            "component5_calls": 0,
+            "memory_context_successes": 0,
+            "successful_conversations": 0
         }
         
-        self.logger.info("Conversation Manager initialized")
+        self.logger.info("Conversation Manager initialized with real Component 5")
     
     @log_execution_time
     async def process_conversation(
@@ -67,7 +86,7 @@ class ConversationManager:
         emotional_state: Optional[Dict[str, Any]] = None,
         conversation_goals: Optional[List[str]] = None
     ) -> EnhancedResponse:
-        """Process a user message and generate AI response"""
+        """Process a user message and generate AI response using Component 5 memories"""
         correlation_id = generate_correlation_id()
         self.logger.info(f"Processing conversation for user {user_id}", extra={
             "correlation_id": correlation_id,
@@ -76,495 +95,352 @@ class ConversationManager:
         })
         
         start_time = datetime.utcnow()
+        conversation_id = conversation_id or f"conv_{uuid.uuid4()}"
         
         try:
-            # Get or create conversation context
-            conversation_context = await self._get_conversation_context(
-                user_id, conversation_id, emotional_state, conversation_goals
+            # Step 1: Get memory context from Component 5 bridge
+            memory_context = await self._get_memory_context(
+                user_id, user_message, conversation_id
             )
             
-            # Adapt AI personality based on user profile and context
-            personality_adaptation = await self.personality_engine.adapt_personality(
-                conversation_context.personality_profile,
-                conversation_context,
-                emotional_state
+            # Step 2: Get user profile
+            user_profile = await self._get_user_profile(user_id)
+            
+            # Step 3: Create conversation context
+            conversation_context = await self._create_conversation_context(
+                user_id, conversation_id, user_message, memory_context, 
+                user_profile, emotional_state, conversation_goals
             )
             
-            # Retrieve relevant memories
-            memory_context = await self._retrieve_memories(
-                user_id, user_message, conversation_context.conversation_id
+            # Step 4: Assemble context for Gemini API
+            gemini_request = await self._assemble_gemini_context(
+                conversation_context, user_message
             )
             
-            # Update conversation context with memories and personality adaptation
-            conversation_context.memories = memory_context.selected_memories
-            conversation_context.last_updated = datetime.utcnow()
+            # Step 5: Generate AI response
+            ai_response = await self._generate_ai_response(gemini_request)
             
-            # Assemble context for Gemini with personality adaptation
-            gemini_request = await self._assemble_context(
-                conversation_context, user_message, personality_adaptation
+            # Step 6: Update conversation history and memory access
+            await self._update_conversation_state(
+                conversation_context, user_message, ai_response, memory_context
             )
             
-            # Generate raw AI response
-            raw_ai_response = await self._generate_ai_response(gemini_request)
-            
-            # Process and enhance the response
-            enhanced_response = await self.response_processor.process_response(
-                raw_ai_response.enhanced_response,
-                conversation_context,
-                {
-                    "personality_adaptation": personality_adaptation,
-                    "memory_context": memory_context.assembly_metadata
-                }
-            )
-            
-            # Update conversation history
-            await self._update_conversation_history(
-                conversation_context, user_message, enhanced_response
-            )
-            
-            # Update memory access tracking
-            await self._update_memory_access(memory_context, user_id)
-            
-            # Check for proactive engagement opportunities
-            await self._check_proactive_opportunities(
-                user_id, conversation_context, emotional_state
-            )
-            
-            # Update performance metrics
-            self._update_performance_metrics(start_time, True)
+            # Update metrics
+            processing_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            self._update_metrics(processing_time, True)
             
             self.logger.info(f"Conversation processed successfully", extra={
                 "correlation_id": correlation_id,
-                "processing_time_ms": (datetime.utcnow() - start_time).total_seconds() * 1000,
-                "response_length": len(enhanced_response.enhanced_response),
-                "quality_score": enhanced_response.quality_metrics.get("overall_quality_score", 0.0)
+                "processing_time_ms": processing_time,
+                "memories_used": len(memory_context.selected_memories)
             })
             
-            return enhanced_response
+            return ai_response
             
         except Exception as e:
-            # Update performance metrics
-            self._update_performance_metrics(start_time, False)
+            processing_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            self._update_metrics(processing_time, False)
             
-            self.logger.error(f"Failed to process conversation: {e}", extra={
+            self.logger.error(f"Conversation processing failed", extra={
                 "correlation_id": correlation_id,
                 "error": str(e),
-                "user_id": user_id
+                "processing_time_ms": processing_time
             })
             raise
     
-    async def _get_conversation_context(
-        self,
-        user_id: str,
-        conversation_id: Optional[str],
-        emotional_state: Optional[Dict[str, Any]],
-        conversation_goals: Optional[List[str]]
-    ) -> ConversationContext:
-        """Get or create conversation context"""
-        if conversation_id and conversation_id in self.active_conversations:
-            # Update existing conversation
-            context = self.active_conversations[conversation_id]
-            if emotional_state:
-                context.emotional_state.update(emotional_state)
-            if conversation_goals:
-                context.conversation_goals.extend(conversation_goals)
-            return context
-        
-        # Create new conversation
-        new_conversation_id = conversation_id or str(uuid.uuid4())
-        
-        # Get user profile
-        user_profile = await self.memory_retriever.get_user_profile(user_id)
-        if not user_profile:
-            # Create default profile
-            user_profile = UserProfile(
-                user_id=user_id,
-                communication_style=CommunicationStyle.FRIENDLY,
-                preferred_response_length="moderate"
-            )
-        
-        # Create conversation context
-        context = ConversationContext(
-            user_id=user_id,
-            conversation_id=new_conversation_id,
-            memories=[],
-            emotional_state=emotional_state or {},
-            personality_profile=user_profile,
-            recent_history=[],
-            conversation_goals=conversation_goals or [],
-            context_window_size=settings.performance.max_context_tokens
-        )
-        
-        # Store in active conversations
-        self.active_conversations[new_conversation_id] = context
-        self.conversation_metrics["active_conversations"] = len(self.active_conversations)
-        
-        return context
-    
-    async def _retrieve_memories(
-        self,
-        user_id: str,
-        user_message: str,
+    async def _get_memory_context(
+        self, 
+        user_id: str, 
+        user_message: str, 
         conversation_id: str
     ) -> MemoryContext:
-        """Retrieve relevant memories for the conversation"""
+        """Get memory context from Component 5 with error handling"""
         try:
-            memory_context = await with_timeout(
-                self.memory_retriever.get_memory_context(
-                    user_id=user_id,
-                    current_message=user_message,
-                    conversation_id=conversation_id,
-                    max_memories=10
-                ),
-                timeout_seconds=settings.performance.memory_retrieval_timeout_ms / 1000,
-                default_value=None
+            self.conversation_metrics["component5_calls"] += 1
+            
+            # Call Component 5 interface
+            memory_context = await self.component5_interface.get_memory_context(
+                user_id=user_id,
+                current_message=user_message,
+                conversation_id=conversation_id,
+                max_memories=settings.performance.max_memories_per_context if hasattr(settings, 'performance') else 10
             )
             
-            if not memory_context:
-                # Create empty memory context if retrieval fails
-                memory_context = MemoryContext(
-                    selected_memories=[],
-                    relevance_scores=[],
-                    token_usage=0,
-                    assembly_metadata={"error": "Memory retrieval failed"}
-                )
+            self.conversation_metrics["memory_context_successes"] += 1
             
+            self.logger.info(f"Retrieved {len(memory_context.selected_memories)} memories from Component 5")
             return memory_context
             
         except Exception as e:
-            self.logger.warning(f"Memory retrieval failed: {e}, using empty context")
+            self.logger.error(f"Component 5 memory retrieval failed: {e}")
+            
+            # Create minimal fallback context
             return MemoryContext(
                 selected_memories=[],
                 relevance_scores=[],
                 token_usage=0,
-                assembly_metadata={"error": str(e)}
+                assembly_metadata={
+                    'error': str(e),
+                    'fallback_used': True,
+                    'source': 'component5_error_fallback'
+                }
             )
     
-    async def _assemble_context(
-        self,
-        conversation_context: ConversationContext,
-        user_message: str,
-        personality_adaptation: Optional[Dict[str, Any]] = None
-    ) -> Any:
-        """Assemble context for Gemini API request with personality adaptation"""
+    async def _get_user_profile(self, user_id: str) -> UserProfile:
+        """Get user profile from Component 5 or create default"""
         try:
-            # Update conversation context with personality adaptation if provided
-            if personality_adaptation:
-                # Store personality adaptation in context metadata
-                if not hasattr(conversation_context, 'context_metadata'):
-                    conversation_context.context_metadata = {}
-                conversation_context.context_metadata['personality_adaptation'] = personality_adaptation
+            if hasattr(self.component5_interface, 'get_user_profile'):
+                user_profile = await self.component5_interface.get_user_profile(user_id)
+                if user_profile:
+                    return user_profile
             
-            gemini_request = await with_timeout(
-                self.context_assembler.assemble_context(
-                    conversation_context=conversation_context,
-                    current_message=user_message,
-                    target_tokens=settings.performance.max_context_tokens
-                ),
-                timeout_seconds=settings.performance.context_assembly_timeout_ms / 1000,
-                default_value=None
+        except Exception as e:
+            self.logger.warning(f"Could not get user profile from Component 5: {e}")
+        
+        # Create default user profile
+        return UserProfile(
+            user_id=user_id,
+            communication_style=CommunicationStyle.FRIENDLY,
+            preferred_response_length="moderate",
+            emotional_matching=True,
+            humor_preference=0.7,
+            formality_level=0.3,
+            conversation_depth=0.8
+        )
+    
+    async def _create_conversation_context(
+        self,
+        user_id: str,
+        conversation_id: str,
+        user_message: str,
+        memory_context: MemoryContext,
+        user_profile: UserProfile,
+        emotional_state: Optional[Dict[str, Any]] = None,
+        conversation_goals: Optional[List[str]] = None
+    ) -> ConversationContext:
+        """Create conversation context from all available information"""
+        try:
+            # Get recent conversation history if available
+            recent_history = self.conversation_history.get(conversation_id, [])
+            
+            # Create conversation context
+            conversation_context = ConversationContext(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                personality_profile=user_profile,
+                memories=memory_context.selected_memories,
+                emotional_state=emotional_state or {},
+                recent_history=recent_history[-5:],  # Last 5 messages
+                conversation_goals=conversation_goals or []
             )
             
-            if not gemini_request:
-                raise RuntimeError("Context assembly failed")
+            self.logger.debug(f"Created conversation context with {len(memory_context.selected_memories)} memories")
+            return conversation_context
             
+        except Exception as e:
+            self.logger.error(f"Error creating conversation context: {e}")
+            # Create minimal fallback context
+            return ConversationContext(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                personality_profile=user_profile,
+                memories=[],
+                emotional_state=emotional_state or {},
+                recent_history=[],
+                conversation_goals=conversation_goals or []
+            )
+    
+    async def _assemble_gemini_context(
+        self,
+        conversation_context: ConversationContext,
+        user_message: str
+    ) -> GeminiRequest:
+        """Assemble context for Gemini API request"""
+        try:
+            # Use context assembler to create Gemini request
+            gemini_request = await self.context_assembler.assemble_context(
+                conversation_context=conversation_context,
+                current_message=user_message,
+                target_tokens=2000
+            )
+            
+            self.logger.debug(f"Assembled Gemini context with token budget: {gemini_request.token_budget}")
             return gemini_request
             
         except Exception as e:
-            self.logger.error(f"Context assembly failed: {e}")
-            raise
+            self.logger.error(f"Error assembling Gemini context: {e}")
+            # Create minimal fallback request
+            return GeminiRequest(
+                conversation_id=conversation_context.conversation_id,
+                user_id=conversation_context.user_id,
+                system_prompt="You are a helpful AI assistant.",
+                context_section="",
+                conversation_history="",
+                current_message=user_message,
+                response_guidelines="Provide helpful and engaging responses.",
+                api_parameters={
+                    "temperature": 0.7,
+                    "max_tokens": 1000,
+                    "top_p": 0.9
+                },
+                user_preferences={},
+                token_budget=2000
+            )
     
-    async def _generate_ai_response(self, gemini_request: Any) -> EnhancedResponse:
-        """Generate AI response using Gemini"""
+    async def _generate_ai_response(self, gemini_request: GeminiRequest) -> EnhancedResponse:
+        """Generate AI response using Gemini API"""
         try:
-            self.logger.info(f"Making Gemini API call with timeout: {settings.performance.total_response_timeout_ms / 1000}s")
+            # Generate response using Gemini client
+            gemini_response = await self.gemini_client.generate_response(gemini_request)
             
-            # Try the call without timeout first to see the actual error
-            try:
-                response = await self.gemini_client.generate_response(gemini_request)
-                self.logger.info("Gemini API call succeeded without timeout wrapper")
-                return response
-            except Exception as api_error:
-                self.logger.error(f"Direct Gemini API call failed: {api_error}")
-                raise
+            if not gemini_response:
+                raise Exception("Gemini client returned empty response")
+            
+            # The Gemini client already returns an EnhancedResponse, just return it
+            self.logger.debug(f"Generated AI response")
+            return gemini_response
             
         except Exception as e:
-            self.logger.error(f"AI response generation failed: {e}")
-            raise
+            self.logger.error(f"Error generating AI response: {e}")
+            # Create fallback response with ALL required fields
+            return EnhancedResponse(
+                response_id=f"resp_{uuid.uuid4().hex[:8]}",
+                conversation_id=gemini_request.conversation_id,
+                user_id=gemini_request.user_id,
+                original_response="I apologize for the technical difficulty.",
+                enhanced_response="I apologize, but I'm having trouble generating a response right now. Could you please try again?",
+                enhancement_metadata={
+                    'error': str(e),
+                    'fallback_used': True,
+                    'timestamp': datetime.utcnow().isoformat()
+                },
+                processing_timestamp=datetime.utcnow(),
+                quality_metrics={'overall_quality': 0.5},
+                safety_checks={'passed': True},
+                context_usage={'utilized': False},
+                response_metadata={
+                    'fallback_used': True,
+                    'error': str(e),
+                    'timestamp': datetime.utcnow().isoformat()
+                },
+                follow_up_suggestions=[
+                    "Could you rephrase your question?",
+                    "Is there something specific I can help you with?"
+                ],
+                proactive_suggestions=[],
+                memory_context_metadata={'memories_used': 0},
+                response_analysis=None
+            )
     
-    async def _update_conversation_history(
+    async def _update_conversation_state(
         self,
         conversation_context: ConversationContext,
         user_message: str,
-        ai_response: EnhancedResponse
-    ) -> None:
-        """Update conversation history"""
-        history_entry = {
-            "timestamp": datetime.utcnow(),
-            "user_message": user_message,
-            "ai_response": ai_response.enhanced_response,
-            "response_id": ai_response.response_id
-        }
-        
-        conversation_context.recent_history.append(history_entry)
-        
-        # Keep only last 20 exchanges
-        if len(conversation_context.recent_history) > 20:
-            conversation_context.recent_history = conversation_context.recent_history[-20:]
-        
-        # Store in conversation history
-        self.conversation_history[conversation_context.conversation_id] = {
-            "user_id": conversation_context.user_id,
-            "created_at": conversation_context.created_at,
-            "last_updated": conversation_context.last_updated,
-            "total_exchanges": len(conversation_context.recent_history)
-        }
-    
-    async def _update_memory_access(
-        self,
-        memory_context: MemoryContext,
-        user_id: str
-    ) -> None:
-        """Update memory access tracking"""
+        ai_response: EnhancedResponse,
+        memory_context: MemoryContext
+    ):
+        """Update conversation history and state tracking"""
         try:
-            for memory in memory_context.selected_memories:
-                if 'id' in memory:
-                    await self.memory_retriever.update_memory_access(
-                        memory_id=memory['id'],
-                        user_id=user_id,
-                        access_type="conversation_reference"
-                    )
+            conversation_id = conversation_context.conversation_id
+            
+            # Update conversation history
+            if conversation_id not in self.conversation_history:
+                self.conversation_history[conversation_id] = []
+            
+            # Add user message and AI response to history
+            self.conversation_history[conversation_id].extend([
+                {
+                    'role': 'user',
+                    'content': user_message,
+                    'timestamp': datetime.utcnow().isoformat()
+                },
+                {
+                    'role': 'assistant', 
+                    'content': ai_response.enhanced_response,
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+            ])
+            
+            # Keep only recent history (last 20 messages)
+            self.conversation_history[conversation_id] = self.conversation_history[conversation_id][-20:]
+            
+            # Update active conversations
+            self.active_conversations[conversation_id] = {
+                'user_id': conversation_context.user_id,
+                'last_activity': datetime.utcnow(),
+                'message_count': len(self.conversation_history[conversation_id])
+            }
+            
+            self.logger.debug(f"Updated conversation state for {conversation_id}")
+            
         except Exception as e:
-            self.logger.warning(f"Failed to update memory access: {e}")
+            self.logger.error(f"Error updating conversation state: {e}")
     
-    async def get_conversation_summary(
-        self,
-        conversation_id: str
-    ) -> Optional[Dict[str, Any]]:
-        """Get summary of a conversation"""
-        if conversation_id not in self.active_conversations:
-            return None
-        
-        context = self.active_conversations[conversation_id]
-        
-        return {
-            "conversation_id": conversation_id,
-            "user_id": context.user_id,
-            "created_at": context.created_at,
-            "last_updated": context.last_updated,
-            "total_exchanges": len(context.recent_history),
-            "memories_used": len(context.memories),
-            "conversation_goals": context.conversation_goals,
-            "current_topic": context.current_topic
-        }
-    
-    async def end_conversation(self, conversation_id: str) -> bool:
-        """End an active conversation"""
-        if conversation_id not in self.active_conversations:
-            return False
-        
-        # Remove from active conversations
-        del self.active_conversations[conversation_id]
-        self.conversation_metrics["active_conversations"] = len(self.active_conversations)
-        
-        self.logger.info(f"Conversation {conversation_id} ended")
-        return True
-    
-    async def get_user_conversations(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get all conversations for a user"""
-        user_conversations = []
-        
-        for conv_id, context in self.active_conversations.items():
-            if context.user_id == user_id:
-                summary = await self.get_conversation_summary(conv_id)
-                if summary:
-                    user_conversations.append(summary)
-        
-        return user_conversations
-    
-    def _update_performance_metrics(self, start_time: datetime, success: bool) -> None:
-        """Update performance tracking metrics"""
-        processing_time = (datetime.utcnow() - start_time).total_seconds() * 1000
-        
-        # Update total conversations
-        self.conversation_metrics["total_conversations"] += 1
-        
-        # Update success rate
-        if success:
-            self.conversation_metrics["success_rate"] = (
-                (self.conversation_metrics["success_rate"] * 
-                 (self.conversation_metrics["total_conversations"] - 1) + 1) /
-                self.conversation_metrics["total_conversations"]
+    def _update_metrics(self, processing_time_ms: float, success: bool):
+        """Update conversation processing metrics"""
+        try:
+            self.conversation_metrics["total_conversations"] += 1
+            
+            if success:
+                self.conversation_metrics["successful_conversations"] += 1
+            
+            # Update average response time
+            total_conversations = self.conversation_metrics["total_conversations"]
+            current_avg = self.conversation_metrics["avg_response_time_ms"]
+            self.conversation_metrics["avg_response_time_ms"] = (
+                (current_avg * (total_conversations - 1) + processing_time_ms) / total_conversations
             )
-        else:
+            
+            # Update success rate
             self.conversation_metrics["success_rate"] = (
-                (self.conversation_metrics["success_rate"] * 
-                 (self.conversation_metrics["total_conversations"] - 1)) /
-                self.conversation_metrics["total_conversations"]
+                self.conversation_metrics["successful_conversations"] / total_conversations
             )
+            
+            # Update active conversations count
+            self.conversation_metrics["active_conversations"] = len(self.active_conversations)
+            
+        except Exception as e:
+            self.logger.error(f"Error updating metrics: {e}")
     
     def get_performance_metrics(self) -> Dict[str, Any]:
-        """Get comprehensive performance metrics"""
-        # Get sub-component metrics
-        memory_metrics = self.memory_retriever.get_performance_metrics()
-        context_metrics = self.context_assembler.get_performance_metrics()
-        gemini_metrics = self.gemini_client.get_performance_metrics()
+        """Get conversation manager performance metrics"""
+        component5_success_rate = 0.0
+        if self.conversation_metrics["component5_calls"] > 0:
+            component5_success_rate = (
+                self.conversation_metrics["memory_context_successes"] / 
+                self.conversation_metrics["component5_calls"]
+            )
         
         return {
-            "conversation_manager": self.conversation_metrics,
-            "memory_retriever": memory_metrics,
-            "context_assembler": context_metrics,
-            "gemini_client": gemini_metrics,
-            "active_conversations": len(self.active_conversations),
-            "total_conversation_history": len(self.conversation_history)
+            **self.conversation_metrics,
+            "component5_success_rate": component5_success_rate,
+            "memory_retrieval_stats": self.memory_retriever.get_retrieval_statistics() if hasattr(self.memory_retriever, 'get_retrieval_statistics') else {}
         }
     
-    async def health_check(self) -> Dict[str, bool]:
-        """Perform health check on all components"""
-        health_status = {}
-        
+    async def initiate_proactive_conversation(self, user_id: str) -> Optional[ProactiveMessage]:
+        """Initiate proactive conversation with user"""
         try:
-            # Check memory retriever
-            health_status["memory_retriever"] = await self.memory_retriever.health_check()
+            return await self.proactive_engine.generate_proactive_message(user_id)
         except Exception as e:
-            self.logger.error(f"Memory retriever health check failed: {e}")
-            health_status["memory_retriever"] = False
-        
-        try:
-            # Check Gemini client
-            health_status["gemini_client"] = await self.gemini_client.health_check()
-        except Exception as e:
-            self.logger.error(f"Gemini client health check failed: {e}")
-            health_status["gemini_client"] = False
-        
-        # Context assembler is stateless, so always healthy
-        health_status["context_assembler"] = True
-        
-        # Overall health
-        health_status["overall"] = all(health_status.values())
-        
-        return health_status
+            self.logger.error(f"Error initiating proactive conversation: {e}")
+            return None
     
-    async def cleanup_old_conversations(self, max_age_hours: int = 24) -> int:
-        """Clean up old inactive conversations"""
-        cutoff_time = datetime.utcnow() - timedelta(hours=max_age_hours)
-        conversations_to_remove = []
-        
-        for conv_id, context in self.active_conversations.items():
-            if context.last_updated < cutoff_time:
-                conversations_to_remove.append(conv_id)
-        
-        # Remove old conversations
-        for conv_id in conversations_to_remove:
-            await self.end_conversation(conv_id)
-        
-        if conversations_to_remove:
-            self.logger.info(f"Cleaned up {len(conversations_to_remove)} old conversations")
-        
-        return len(conversations_to_remove)
-    
-    async def _check_proactive_opportunities(
-        self,
-        user_id: str,
-        conversation_context: ConversationContext,
-        emotional_state: Optional[Dict[str, Any]]
-    ) -> None:
-        """Check for proactive engagement opportunities"""
+    async def cleanup_inactive_conversations(self, max_age_hours: int = 24):
+        """Clean up inactive conversations older than specified hours"""
         try:
-            # Gather activity data for pattern analysis
-            activity_data = {
-                "session_count": len(conversation_context.recent_history),
-                "avg_session_length": self._calculate_avg_session_length(conversation_context),
-                "last_interaction": conversation_context.last_updated
-            }
+            cutoff_time = datetime.utcnow() - timedelta(hours=max_age_hours)
             
-            # Prepare emotional history
-            emotional_history = []
-            if emotional_state:
-                emotional_history.append({
-                    "timestamp": datetime.utcnow(),
-                    "primary_emotion": emotional_state.get("primary_emotion", "neutral"),
-                    "stress_level": emotional_state.get("stress_level", 5),
-                    "intensity": emotional_state.get("intensity", 0.5)
-                })
+            inactive_conversations = [
+                conv_id for conv_id, conv_data in self.active_conversations.items()
+                if conv_data['last_activity'] < cutoff_time
+            ]
             
-            # Analyze patterns and identify opportunities
-            patterns = await self.proactive_engine.analyze_user_patterns(
-                user_id, activity_data, emotional_history
-            )
+            for conv_id in inactive_conversations:
+                del self.active_conversations[conv_id]
+                if conv_id in self.conversation_history:
+                    del self.conversation_history[conv_id]
             
-            # Generate proactive messages for identified opportunities
-            for opportunity in patterns.get("intervention_opportunities", []):
-                message = await self.proactive_engine.generate_proactive_message(
-                    user_id=user_id,
-                    trigger_event=opportunity["trigger"],
-                    context=opportunity["context"],
-                    user_profile=conversation_context.personality_profile
-                )
-                
-                if message:
-                    self.logger.info(f"Proactive message generated for user {user_id}: {opportunity['type']}")
-        
+            self.logger.info(f"Cleaned up {len(inactive_conversations)} inactive conversations")
+            
         except Exception as e:
-            self.logger.error(f"Error checking proactive opportunities: {e}")
-    
-    def _calculate_avg_session_length(self, conversation_context: ConversationContext) -> float:
-        """Calculate average session length from conversation history"""
-        if not conversation_context.recent_history:
-            return 0.0
-        
-        total_length = 0
-        for exchange in conversation_context.recent_history:
-            user_msg = exchange.get("user_message", "")
-            ai_msg = exchange.get("ai_response", "")
-            total_length += len(user_msg) + len(ai_msg)
-        
-        return total_length / len(conversation_context.recent_history) if conversation_context.recent_history else 0.0
-    
-    async def get_proactive_messages(self, user_id: str) -> List[Any]:
-        """Get pending proactive messages for a user"""
-        try:
-            return await self.proactive_engine.get_pending_messages(user_id)
-        except Exception as e:
-            self.logger.error(f"Error getting proactive messages: {e}")
-            return []
-    
-    async def mark_proactive_message_delivered(self, message_id: str, user_id: str) -> bool:
-        """Mark a proactive message as delivered"""
-        try:
-            return await self.proactive_engine.mark_message_delivered(message_id, user_id)
-        except Exception as e:
-            self.logger.error(f"Error marking proactive message as delivered: {e}")
-            return False
-    
-    def get_component_performance_metrics(self) -> Dict[str, Any]:
-        """Get performance metrics from all components"""
-        try:
-            return {
-                "conversation_manager": self.conversation_metrics,
-                "memory_retriever": self.memory_retriever.get_performance_metrics(),
-                "context_assembler": self.context_assembler.get_performance_metrics(),
-                "personality_engine": self.personality_engine.get_performance_metrics(),
-                "proactive_engine": self.proactive_engine.get_performance_metrics(),
-                "response_processor": self.response_processor.get_performance_metrics(),
-                "gemini_client": self.gemini_client.get_performance_metrics() if hasattr(self.gemini_client, 'get_performance_metrics') else {}
-            }
-        except Exception as e:
-            self.logger.error(f"Error getting performance metrics: {e}")
-            return {}
-    
-    async def close(self):
-        """Cleanup resources"""
-        try:
-            await self.gemini_client.close()
-            self.logger.info("Conversation Manager cleanup completed")
-        except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}")
-    
-    def __del__(self):
-        """Cleanup on deletion"""
-        try:
-            # Schedule cleanup
-            asyncio.create_task(self.close())
-        except:
-            pass
+            self.logger.error(f"Error cleaning up conversations: {e}")

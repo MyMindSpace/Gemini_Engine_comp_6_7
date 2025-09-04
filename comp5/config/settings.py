@@ -11,12 +11,12 @@ class AstraDBConfig:
     keyspace: str = "memory_db"
     timeout: int = 30
     
-    @classmethod
+    @classmethod  
     def from_env(cls):
         return cls(
-            endpoint=os.getenv("ASTRA_DB_ENDPOINT", ""),
+            endpoint=os.getenv("ASTRA_DB_API_ENDPOINT", ""),  # ✅ CORRECT VARIABLE NAME
             token=os.getenv("ASTRA_DB_TOKEN", ""),
-            keyspace=os.getenv("ASTRA_KEYSPACE", "memory_db")
+            keyspace=os.getenv("KEYSPACE", "memory_db")  # ✅ CORRECT VARIABLE NAME
         )
 
 @dataclass

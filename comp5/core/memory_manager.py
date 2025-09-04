@@ -340,21 +340,26 @@ class MemoryManager:
         return memories
     
     async def _filter_memories_by_relevance(self,
-                                           memories: List[MemoryItem],
-                                           query_features: List[float],
-                                           user_context: Optional[Dict]) -> List[MemoryItem]:
+                                       memories: List[MemoryItem],
+                                       query_features: List[float],
+                                       user_context: Optional[Dict]) -> List[MemoryItem]:
         """Filter memories using output gate for relevance"""
         relevant_memories = []
         
+        # ❌ PROBLEM: This creates a context vector but network expects context_size=0
         # Create context vector for output gate if available
-        context_vector = None
-        if user_context:
-            context_vector = self._create_context_vector(user_context)
+        # context_vector = None
+        # if user_context:
+        #     context_vector = self._create_context_vector(user_context)
+        
+        # ✅ SOLUTION: Don't create context vector since network has context_size=0
+        context_vector = None  # Always None since our network has context_size=0
         
         for memory in memories:
-            # Get output gate decision
+            # Get output gate decision WITHOUT context vector
             output_decisions = self.gate_network.get_gate_decisions(
-                memory.feature_vector, context_vector
+                memory.feature_vector,
+                context_vector  # This will be None, which is correct for context_size=0
             )
             
             output_score = output_decisions['output']['score']
@@ -366,6 +371,7 @@ class MemoryManager:
                 relevant_memories.append(memory)
         
         return relevant_memories
+
     
     def _create_context_vector(self, user_context: Dict) -> List[float]:
         """Create context vector from user context"""

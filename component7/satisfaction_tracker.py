@@ -17,7 +17,7 @@ from shared.schemas import (
 from shared.utils import (
     get_logger, log_execution_time, generate_correlation_id
 )
-from config.settings import settings
+from configu.settings import settings
 
 
 class SatisfactionTracker:

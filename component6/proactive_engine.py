@@ -12,7 +12,7 @@ import json
 
 from shared.schemas import ProactiveMessage, UserProfile
 from shared.utils import get_logger, generate_correlation_id
-from config.settings import settings
+from configu.settings import settings
 
 
 class ProactiveEngine:
