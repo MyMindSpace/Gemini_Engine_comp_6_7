@@ -7,6 +7,7 @@ import asyncio
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
+from matplotlib import text
 import yaml
 from pathlib import Path
 
@@ -36,6 +37,35 @@ class ContextAssembler:
         
         self.logger.info("Context Assembler initialized")
     
+    def _build_memories_section(self, memories: List[Any]) -> str:
+        """Build memories section with proper error handling"""
+        if not memories:
+            return "No relevant memories found."
+        
+        memories_text = []
+        for i, memory in enumerate(memories, 1):
+            try:
+                # Handle both dict and object formats
+                if isinstance(memory, dict):
+                    memory_type = memory.get('memory_type', 'unknown')
+                    content = memory.get('content_summary', str(memory))
+                    importance = memory.get('importance_score', 0.5)
+                else:
+                    # Handle MemoryItem objects
+                    memory_type = getattr(memory, 'memory_type', 'unknown')
+                    content = getattr(memory, 'content_summary', str(memory))
+                    importance = getattr(memory, 'importance_score', 0.5)
+                
+                memories_text.append(
+                    f"Memory {i} ({memory_type}): {content} [Relevance: {importance:.2f}]"
+                )
+                
+            except Exception as e:
+                # Fallback for any memory format issues
+                memories_text.append(f"Memory {i}: {str(memory)[:100]}...")
+        
+        return "\n".join(memories_text)
+
     def _load_prompts_config(self, config_path: Optional[str]) -> Dict[str, Any]:
         """Load prompt templates configuration"""
         if config_path and Path(config_path).exists():
@@ -177,80 +207,109 @@ class ContextAssembler:
         return system_prompt
     
     async def _build_context_section(
-        self,
-        conversation_context: ConversationContext,
-        current_message: str,
-        target_tokens: int
-    ) -> str:
+    self,
+    conversation_context: ConversationContext,
+    current_message: str,
+    target_tokens: int
+) -> str:
         """Build context section with memories and user state"""
         context_parts = []
         
-        # Add memories section
-        if conversation_context.memories:
-            memories_text = self._format_memories_for_context(
-                conversation_context.memories,
-                target_tokens // 2  # Reserve half tokens for memories
-            )
-            context_parts.append(f"Relevant Memories:\n{memories_text}")
+        # Add memories section with error handling
+        try:
+            if conversation_context.memories:
+                memories_text = self._format_memories_for_context(
+                    conversation_context.memories,
+                    target_tokens // 2  # Reserve half tokens for memories
+                )
+                context_parts.append(f"Relevant Memories:\n{memories_text}")
+        except Exception as e:
+            self.logger.error(f"Error formatting memories: {e}")
+            context_parts.append("Relevant Memories:\nMemory formatting temporarily unavailable.")
         
         # Add emotional state
         if conversation_context.emotional_state:
-            emotional_text = self._format_emotional_state(
-                conversation_context.emotional_state
-            )
-            context_parts.append(f"Current Emotional State:\n{emotional_text}")
+            try:
+                emotional_text = self._format_emotional_state(
+                    conversation_context.emotional_state
+                )
+                context_parts.append(f"Current Emotional State:\n{emotional_text}")
+            except Exception as e:
+                self.logger.warning(f"Error formatting emotional state: {e}")
         
         # Add personality profile highlights
-        personality_text = self._format_personality_highlights(
-            conversation_context.personality_profile
-        )
-        context_parts.append(f"Communication Preferences:\n{personality_text}")
+        try:
+            personality_text = self._format_personality_highlights(
+                conversation_context.personality_profile
+            )
+            context_parts.append(f"Communication Preferences:\n{personality_text}")
+        except Exception as e:
+            self.logger.warning(f"Error formatting personality: {e}")
         
         # Add conversation goals if available
         if conversation_context.conversation_goals:
-            goals_text = "Conversation Goals:\n" + "\n".join(
-                f"- {goal}" for goal in conversation_context.conversation_goals
-            )
-            context_parts.append(goals_text)
+            try:
+                goals_text = "Conversation Goals:\n" + "\n".join(
+                    f"- {goal}" for goal in conversation_context.conversation_goals
+                )
+                context_parts.append(goals_text)
+            except Exception as e:
+                self.logger.warning(f"Error formatting goals: {e}")
         
         # Combine all parts
-        context_section = "\n\n".join(context_parts)
-        
-        # Optimize if too long
-        if self.token_counter.count_tokens(context_section) > target_tokens // 2:
-            context_section = self._compress_context_section(context_section, target_tokens // 2)
+        context_section = "\n\n".join(context_parts) if context_parts else "Context information temporarily unavailable."
         
         return context_section
     
     def _format_memories_for_context(
-        self,
-        memories: List[MemoryItem],
-        max_tokens: int
-    ) -> str:
-        """Format memories for context inclusion"""
+    self,
+    memories: List[Any],  # Change from List[MemoryItem] to List[Any]
+    max_tokens: int
+) -> str:
+        """Format memories for context inclusion with dict/object compatibility"""
         if not memories:
             return "No relevant memories available."
         
-        formatted_memories = []
+        memory_texts = []
         current_tokens = 0
         
-        for memory in memories:
-            # Format individual memory
-            memory_text = self._format_single_memory(memory)
-            memory_tokens = self.token_counter.count_tokens(memory_text)
-            
-            if current_tokens + memory_tokens <= max_tokens:
-                formatted_memories.append(memory_text)
+        for i, memory in enumerate(memories):
+            try:
+                # Handle both dict and object formats safely
+                if isinstance(memory, dict):
+                    memory_type = memory.get('memory_type', 'unknown')
+                    content = memory.get('content_summary', str(memory))
+                    importance = memory.get('importance_score', 0.5)
+                    created_at = memory.get('created_at', 'unknown')
+                else:
+                    # Handle object format
+                    memory_type = getattr(memory, 'memory_type', 'unknown')
+                    content = getattr(memory, 'content_summary', str(memory))
+                    importance = getattr(memory, 'importance_score', 0.5)
+                    created_at = getattr(memory, 'created_at', 'unknown')
+                
+                # Format memory entry
+                memory_text = f"Memory {i+1} ({memory_type}): {content} [Relevance: {importance:.2f}]"
+                
+                # Check token limit
+                memory_tokens = self._estimate_tokens(memory_text)
+                if current_tokens + memory_tokens > max_tokens and memory_texts:
+                    break
+                
+                memory_texts.append(memory_text)
                 current_tokens += memory_tokens
-            else:
-                break
+                
+            except Exception as e:
+                # Fallback for any problematic memory
+                self.logger.warning(f"Error formatting memory {i}: {e}")
+                fallback_text = f"Memory {i+1}: {str(memory)[:50]}..."
+                memory_texts.append(fallback_text)
         
-        if not formatted_memories:
-            # If no memories fit, create a summary
-            summary = "Recent relevant memories available (details compressed for space)."
-            formatted_memories.append(summary)
-        
-        return "\n\n".join(formatted_memories)
+        return "\n".join(memory_texts) if memory_texts else "No memories could be formatted."
+   
+    def _estimate_tokens(self, text: str) -> int:
+        """Rough token estimation - 1 token per 4 characters"""
+        return len(text) // 4
     
     def _format_single_memory(self, memory: MemoryItem) -> str:
         """Format a single memory for context"""

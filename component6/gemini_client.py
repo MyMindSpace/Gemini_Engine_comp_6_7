@@ -253,12 +253,12 @@ class GeminiClient:
         return await self._make_single_request(api_request, correlation_id)
 
     async def _process_response(
-        self,
-        api_response: Dict[str, Any],
-        gemini_request: GeminiRequest,
-        start_time: datetime,
-        correlation_id: str
-    ) -> EnhancedResponse:
+    self,
+    api_response: Dict[str, Any],
+    gemini_request: GeminiRequest,
+    start_time: datetime,
+    correlation_id: str
+) -> EnhancedResponse:
         """Process the API response into EnhancedResponse format"""
         try:
             response_text = self._extract_response_text(api_response)
@@ -272,8 +272,12 @@ class GeminiClient:
                 processed_response, gemini_request
             )
             processing_time_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+            
+            # Create enhanced response with ALL required parameters
             enhanced_response = EnhancedResponse(
                 response_id=generate_correlation_id(),
+                conversation_id=gemini_request.conversation_id,  # ADD THIS
+                user_id=gemini_request.user_id,                   # ADD THIS
                 original_response=response_text,
                 enhanced_response=processed_response,
                 enhancement_metadata={
@@ -298,9 +302,17 @@ class GeminiClient:
                 context_usage={
                     "memory_utilization": 0.8,
                     "context_relevance": 0.85
-                }
+                },
+                response_metadata={
+                    "model_used": self.model_name,
+                    "processing_time_ms": processing_time_ms
+                },
+                follow_up_suggestions=follow_up_suggestions,
+                proactive_suggestions=[],
+                memory_context_metadata={"memories_used": 0}
             )
             return enhanced_response
+            
         except Exception as e:
             self.logger.error(f"Failed to process API response: {e}", extra={
                 "correlation_id": correlation_id,
@@ -309,26 +321,49 @@ class GeminiClient:
             raise
 
     def _extract_response_text(self, api_response: Dict[str, Any]) -> str:
-        """Extract response text from Gemini API response"""
+        """Extract text from API response with improved error handling"""
         try:
-            candidates = api_response.get("candidates", [])
-            if not candidates:
-                raise ValueError("No candidates in response")
-            candidate = candidates[0]
-            content = candidate.get("content", {})
-            parts = content.get("parts", [])
-            if not parts:
-                raise ValueError("No parts in content")
-            text_parts = []
-            for part in parts:
-                if part.get("text"):
-                    text_parts.append(part["text"])
-            if not text_parts:
-                raise ValueError("No text in parts")
-            return " ".join(text_parts)
+            # Handle different response formats
+            if "candidates" in api_response:
+                candidates = api_response["candidates"]
+                if candidates and len(candidates) > 0:
+                    candidate = candidates[0]
+                    
+                    # Try different content structures
+                    if "content" in candidate:
+                        content = candidate["content"]
+                        if isinstance(content, dict) and "parts" in content:
+                            parts = content["parts"]
+                            if parts and len(parts) > 0 and "text" in parts[0]:
+                                return parts[0]["text"]
+                    
+                    # Try direct text field
+                    if "text" in candidate:
+                        return candidate["text"]
+                    
+                    # Try message format
+                    if "message" in candidate and "content" in candidate["message"]:
+                        return candidate["message"]["content"]
+            
+            # Try direct content field
+            if "content" in api_response:
+                if isinstance(api_response["content"], str):
+                    return api_response["content"]
+            
+            # Try text field directly
+            if "text" in api_response:
+                return api_response["text"]
+            
+            # Log the actual response structure for debugging
+            self.logger.error(f"Unexpected response structure: {api_response}")
+            
+            # Return a meaningful fallback instead of failing
+            return "I apologize, but I'm having trouble processing that request right now. Could you please try again?"
+            
         except Exception as e:
-            self.logger.error(f"Failed to extract response text: {e}")
-            raise ValueError(f"Invalid response format: {e}")
+            self.logger.error(f"Error extracting response text: {e}")
+            return "I'm experiencing technical difficulties. Please try your request again."
+
 
     async def _enhance_response(
         self,

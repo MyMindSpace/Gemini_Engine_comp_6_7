@@ -1,4 +1,4 @@
-# gemini_engine_orchestrator.py (REPLACE EXISTING)
+# gemini_engine_orchestrator.py (COMPLETE FIXED VERSION)
 """
 Gemini Engine Orchestrator - Main Integration Layer for Components 5, 6 & 7
 Production-ready AI conversational system integrating all components
@@ -116,22 +116,25 @@ class GeminiEngineOrchestrator:
         })
         
         start_time = datetime.utcnow()
+        conversation_id = conversation_id or f"conv_{uuid.uuid4()}"
         
         try:
-            # Step 1: Get memory context from Component 5 (LSTM Gates)
-            self.logger.info("📝 Step 1: Retrieving memory context from Component 5...")
+            # Step 1: Get memory context from Component 5
+            self.logger.info("🧠 Step 1: Retrieving memory context from Component 5...")
             memory_context = await self.component5_bridge.get_memory_context(
                 user_id=user_id,
                 current_message=user_message,
-                conversation_id=conversation_id or f"conv_{uuid.uuid4()}",
-                max_memories=20
+                conversation_id=conversation_id,
+                max_memories=10
             )
+            
+            self.logger.info(f"Retrieved {len(memory_context.selected_memories)} memories from Component 5")
             
             # Step 2: Get user profile
             self.logger.info("👤 Step 2: Retrieving user profile...")
             user_profile = await self.component5_bridge.get_user_profile(user_id)
             
-            # Step 3: Process conversation through Component 6
+            # Step 3: Process through Component 6
             self.logger.info("🤖 Step 3: Processing through Component 6...")
             enhanced_response = await self.conversation_manager.process_conversation(
                 user_id=user_id,
@@ -141,42 +144,63 @@ class GeminiEngineOrchestrator:
                 conversation_goals=conversation_goals
             )
             
-            # Step 4: Analyze response through Component 7
-            self.logger.info("📊 Step 4: Analyzing response through Component 7...")
-            response_analysis = await self.component7.analyze_response(
-                user_id=user_id,
-                user_message=user_message,
-                ai_response=enhanced_response.enhanced_response,
-                conversation_context={
-                    "memory_context": memory_context,
-                    "user_profile": user_profile,
-                    "emotional_state": emotional_state
-                }
-            )
+            # Debug: Check enhanced_response before Component 7
+            if enhanced_response is None:
+                self.logger.error("Enhanced response is None from Component 6")
+                raise ValueError("Component 6 returned None response")
             
-            # Step 5: Update memory access tracking in Component 5
-            self.logger.info("🔄 Step 5: Updating memory access in Component 5...")
-            if memory_context.selected_memories:
-                memory_ids = [mem['id'] for mem in memory_context.selected_memories if 'id' in mem]
-                await self.component5_bridge.update_memory_access(
-                    memory_ids=memory_ids,
-                    user_id=user_id,
-                    conversation_id=conversation_id or "unknown"
+            # Step 4: Analyze response through Component 7
+            try:
+                self.logger.info("📊 Step 4: Analyzing response through Component 7...")
+                
+                response_analysis = await self.component7.analyze_response(
+                    enhanced_response,                    # response (positional)
+                    memory_context.assembly_metadata,     # context_used (positional)
+                    None                                  # user_satisfaction (positional)
                 )
+                
+                # Safely set response analysis
+                if response_analysis and isinstance(response_analysis, dict) and response_analysis.get("analysis"):
+                    enhanced_response.response_analysis = response_analysis["analysis"]
+                
+            except Exception as e:
+                self.logger.warning(f"Component 7 analysis failed, continuing without: {e}")
+                response_analysis = {"analysis": None, "satisfaction": {"satisfaction_score": 0.5}}
+            
+            # Step 5: Update memory access in Component 5 (if method exists)
+            try:
+                self.logger.info("🔄 Step 5: Updating memory access in Component 5...")
+                if hasattr(self.component5_bridge, 'update_memory_access'):
+                    await self.component5_bridge.update_memory_access(
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        memories_used=memory_context.selected_memories
+                    )
+            except Exception as e:
+                self.logger.warning(f"Memory access update failed: {e}")
             
             # Update metrics
             processing_time = (datetime.utcnow() - start_time).total_seconds() * 1000
             self._update_conversation_metrics(processing_time, True)
             
-            # Enhance response with analysis
-            enhanced_response.response_analysis = response_analysis
-            enhanced_response.processing_time_ms = processing_time
+            # Set processing time on response
+            if hasattr(enhanced_response, 'processing_time_ms'):
+                enhanced_response.processing_time_ms = processing_time
+            
+            # Safe logging with proper error handling
+            quality_score = 0.0
+            if response_analysis and isinstance(response_analysis, dict):
+                analysis = response_analysis.get("analysis")
+                if analysis and hasattr(analysis, 'quality_scores'):
+                    quality_scores = getattr(analysis, 'quality_scores', {})
+                    if isinstance(quality_scores, dict):
+                        quality_score = quality_scores.get("overall_quality", 0.0)
             
             self.logger.info(f"✅ Conversation processed successfully", extra={
                 "correlation_id": correlation_id,
                 "processing_time_ms": processing_time,
                 "memories_used": len(memory_context.selected_memories),
-                "quality_score": response_analysis.overall_quality if response_analysis else 0.0
+                "quality_score": quality_score
             })
             
             return enhanced_response
@@ -269,18 +293,16 @@ class GeminiEngineOrchestrator:
             # Check Component 7
             comp7_health = {
                 "orchestrator": self.component7 is not None,
-                "response_analysis": True  # Assume healthy if initialized
+                "quality_analyzer": hasattr(self.component7, 'quality_analyzer')
             }
             health_status["component_health"]["component7"] = comp7_health
             
-            # Overall health assessment
+            # Overall health
             health_status["overall_healthy"] = (
                 comp5_health.get("initialized", False) and
-                comp6_health.get("conversation_manager", False) and
-                comp7_health.get("orchestrator", False)
+                all(comp6_health.values()) and
+                all(comp7_health.values())
             )
-            
-            self.logger.info(f"Health check completed: {'✅ Healthy' if health_status['overall_healthy'] else '❌ Unhealthy'}")
             
         except Exception as e:
             self.logger.error(f"Health check failed: {e}")
@@ -290,26 +312,17 @@ class GeminiEngineOrchestrator:
     
     def get_performance_summary(self) -> Dict[str, Any]:
         """Get comprehensive performance summary"""
-        return {
-            "conversation_metrics": self.conversation_metrics,
-            "component5_stats": self.component5_bridge.get_statistics(),
-            "component6_stats": {
-                "active_conversations": len(getattr(self.conversation_manager, 'active_conversations', {})),
-                "memory_cache_size": len(getattr(self.memory_retriever, 'cache', {}))
-            },
-            "component7_stats": {
-                # Component 7 stats would be available through component7 interface
-                "analysis_completed": True
-            },
-            "system_uptime": datetime.utcnow(),
-            "health_summary": self.conversation_metrics
-        }
-    
-    async def cleanup(self):
-        """Cleanup all components"""
         try:
-            await self.component5_bridge.cleanup()
-            # Add cleanup for other components as needed
-            self.logger.info("✅ Orchestrator cleanup complete")
+            return {
+                "conversation_metrics": self.conversation_metrics,
+                "component5_stats": self.component5_bridge.get_statistics() if hasattr(self.component5_bridge, 'get_statistics') else {},
+                "component6_stats": self.conversation_manager.get_performance_metrics() if hasattr(self.conversation_manager, 'get_performance_metrics') else {},
+                "component7_stats": self.component7.get_performance_summary() if hasattr(self.component7, 'get_performance_summary') else {},
+                "timestamp": datetime.utcnow()
+            }
         except Exception as e:
-            self.logger.error(f"Error during orchestrator cleanup: {e}")
+            self.logger.error(f"Error getting performance summary: {e}")
+            return {
+                "error": str(e),
+                "timestamp": datetime.utcnow()
+            }

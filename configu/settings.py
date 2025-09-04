@@ -16,6 +16,7 @@ load_dotenv()
 
 
 @dataclass
+@dataclass
 class GeminiAPIConfig:
     """Gemini API configuration"""
     api_key: str
@@ -27,6 +28,21 @@ class GeminiAPIConfig:
     top_k: int = 40
     timeout_seconds: int = 30
     max_retries: int = 3
+    # ADD THESE MISSING ATTRIBUTES:
+    rate_limit_requests_per_minute: int = 60
+    rate_limit_tokens_per_minute: int = 15000
+    supports_system_prompt: bool = True
+    safety_settings: Dict[str, str] = None  # This is the missing one!
+
+    def __post_init__(self):
+        """Set default safety settings if none provided"""
+        if self.safety_settings is None:
+            self.safety_settings = {
+                "HARM_CATEGORY_HARASSMENT": "BLOCK_MEDIUM_AND_ABOVE",
+                "HARM_CATEGORY_HATE_SPEECH": "BLOCK_MEDIUM_AND_ABOVE", 
+                "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_MEDIUM_AND_ABOVE",
+                "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_MEDIUM_AND_ABOVE"
+            }
 
 
 @dataclass  
@@ -108,7 +124,15 @@ class Settings:
             model_name=os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-pro"),
             max_tokens=int(os.getenv("GEMINI_MAX_TOKENS", "2048")),
             temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.7")),
-            timeout_seconds=int(os.getenv("GEMINI_TIMEOUT", "30"))
+            top_p=float(os.getenv("GEMINI_TOP_P", "0.9")),
+            top_k=int(os.getenv("GEMINI_TOP_K", "40")),
+            timeout_seconds=int(os.getenv("GEMINI_TIMEOUT", "30")),
+            max_retries=int(os.getenv("GEMINI_MAX_RETRIES", "3")),
+            # ADD THE MISSING ATTRIBUTES:
+            rate_limit_requests_per_minute=int(os.getenv("GEMINI_RATE_LIMIT_RPM", "60")),
+            rate_limit_tokens_per_minute=int(os.getenv("GEMINI_RATE_LIMIT_TPM", "15000")),
+            supports_system_prompt=os.getenv("GEMINI_SUPPORTS_SYSTEM_PROMPT", "true").lower() == "true",
+            safety_settings=None  # Will use defaults from __post_init__
         )
     
     def _load_component5_config(self) -> Component5LSTMConfig:
