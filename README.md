@@ -1,17 +1,28 @@
-# Gemini Engine Components 6 & 7
+# Gemini Engine Components 5, 6 & 7
 
-Production-ready AI conversational system with advanced memory integration and response analysis.
+Production-ready AI conversational system with advanced LSTM memory integration, contextual understanding, and response analysis.
 
 ## 🚀 Quick Start
 
+### Option 1: FastAPI Server (Recommended)
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
 # Set up environment variables
 cp .env.example .env
-# Edit .env with your Gemini API key and settings
+# Edit .env with your Gemini API key and AstraDB credentials
 
+# Start the FastAPI server
+python api_integration.py
+
+# Access the API documentation
+# Swagger UI: http://localhost:8007/docs
+# ReDoc: http://localhost:8007/redoc
+```
+
+### Option 2: Direct Integration
+```bash
 # Run the complete integration
 python gemini_engine_complete_integration.py
 
@@ -21,14 +32,93 @@ python component6_7_integration.py
 
 ## 📋 Overview
 
-The Gemini Engine is a sophisticated AI conversational system that integrates memory management, contextual understanding, and response quality analysis. Components 6 and 7 work together to deliver personalized, context-aware conversations with continuous improvement.
+The Gemini Engine is a sophisticated AI conversational system that integrates LSTM memory management, contextual understanding, and response quality analysis. Components 5, 6, and 7 work together to deliver personalized, context-aware conversations with continuous improvement.
 
 ### Architecture Flow
 ```
-Memory Gates (Comp 5) → Context Assembly (Comp 6) → Gemini API → Response Analysis (Comp 7)
+LSTM Memory Gates (Comp 5) → Context Assembly (Comp 6) → Gemini API → Response Analysis (Comp 7)
      ↑                                                                        ↓
      ←←←←←←←←←←← Feedback Loop for Optimization ←←←←←←←←←←←←←←←←←←←←←←←←←
 ```
+
+## 🌐 FastAPI Integration
+
+### API Endpoints
+
+The FastAPI server provides comprehensive REST API endpoints for the complete Gemini Engine workflow:
+
+#### **Core Conversation Processing**
+- **`POST /conversation`** - Complete conversation processing through LSTM Memory → Context Assembly → Gemini AI → Quality Analysis
+- **`POST /conversation/batch`** - Batch processing of multiple conversations
+- **`GET /health`** - System health check for all components
+- **`GET /performance`** - Performance metrics for all components
+
+#### **Memory Management**
+- **`POST /memory/context`** - LSTM memory context retrieval using Component 5
+- **`POST /memory/retrieve`** - Direct memory retrieval bypassing full workflow
+
+#### **Testing & Diagnostics**
+- **`POST /test/integration`** - Run complete integration test suite
+- **`GET /test/health`** - Detailed health test with component diagnostics
+
+### API Documentation
+
+Once the server is running, access the interactive documentation:
+- **Swagger UI**: `http://localhost:8007/docs`
+- **ReDoc**: `http://localhost:8007/redoc`
+
+### Example API Usage
+
+#### Process a Conversation
+```bash
+curl -X POST "http://localhost:8007/conversation" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_12345",
+    "user_message": "I'\''m feeling excited about my new AI project!",
+    "conversation_id": "conv_001",
+    "emotional_state": {
+      "primary_emotion": "excited",
+      "intensity": 0.8,
+      "confidence": 0.9
+    }
+  }'
+```
+
+#### Get Memory Context
+```bash
+curl -X POST "http://localhost:8007/memory/context" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_12345",
+    "current_message": "How am I feeling about work lately?",
+    "conversation_id": "conv_001",
+    "max_memories": 10
+  }'
+```
+
+#### Health Check
+```bash
+curl -X GET "http://localhost:8007/health"
+```
+
+## 🧠 Component 5: LSTM Memory Gates
+
+**Purpose**: Intelligent memory management using LSTM-inspired gates for selective memory storage and retrieval.
+
+### Core Features
+- **Input Gate**: Decides which memories are important enough to store (40-60% storage rate)
+- **Forget Gate**: Manages memory decay and deletion over time
+- **Output Gate**: Filters memories for conversation relevance
+- **Database Integration**: Uses AstraDB `memory_embeddings` collection
+- **Feature Processing**: 90-dimensional feature vectors from Component 4
+- **Embedding Support**: 768-dimensional text embeddings from Component 3
+
+### Memory Types
+- **Emotion**: Feelings, moods, emotional states
+- **Event**: Appointments, meetings, scheduled activities
+- **Insight**: Learning moments, realizations, discoveries
+- **Conversation**: General interactions and thoughts
 
 ## 🏗️ Component 6: Gemini Brain Integration
 
@@ -119,11 +209,16 @@ Memory Gates (Comp 5) → Context Assembly (Comp 6) → Gemini API → Response 
 ### Environment Variables
 
 ```bash
-# Gemini API Configuration
+# Gemini API Configuration (REQUIRED)
 GEMINI_API_KEY=your_gemini_api_key_here
 GEMINI_MODEL=gemini-1.5-pro
 GEMINI_MAX_TOKENS=2000
 GEMINI_TEMPERATURE=0.7
+
+# AstraDB Configuration (REQUIRED)
+ASTRA_DB_API_ENDPOINT=your_astra_endpoint_here
+ASTRA_DB_TOKEN=your_astra_token_here
+KEYSPACE=memory_db
 
 # Component Integration
 ENABLE_MEMORY_GATES=true
@@ -156,8 +251,44 @@ user_profile = UserProfile(
 
 ## 📊 Usage Examples
 
-### Basic Conversation Processing
+### FastAPI Server Usage
 
+#### Start the Server
+```bash
+# Start the FastAPI server
+python api_integration.py
+
+# Server will be available at:
+# - API: http://localhost:8007
+# - Swagger UI: http://localhost:8007/docs
+# - ReDoc: http://localhost:8007/redoc
+```
+
+#### Python Client Example
+```python
+import requests
+import json
+
+# Process a conversation
+response = requests.post("http://localhost:8007/conversation", json={
+    "user_id": "user_001",
+    "user_message": "How was your day?",
+    "conversation_id": "conv_123",
+    "emotional_state": {
+        "primary_emotion": "happy",
+        "intensity": 0.7,
+        "confidence": 0.9
+    }
+})
+
+result = response.json()
+print(f"AI Response: {result['enhanced_response']}")
+print(f"Quality Score: {result.get('quality_metrics', {}).get('overall_quality', 'N/A')}")
+```
+
+### Direct Integration Usage
+
+#### Basic Conversation Processing
 ```python
 from gemini_engine_orchestrator import GeminiEngineOrchestrator
 
@@ -209,8 +340,21 @@ print(f"Improvements: {analysis.improvement_suggestions}")
 
 ## 🧪 Testing
 
+### FastAPI Testing
+```bash
+# Start the server
+python api_integration.py
+
+# Test API endpoints using curl or Postman
+curl -X GET "http://localhost:8007/health"
+curl -X POST "http://localhost:8007/test/integration"
+```
+
 ### Unit Tests
 ```bash
+# Run Component 5 tests
+pytest tests/component5/ -v
+
 # Run Component 6 tests
 pytest tests/component6/ -v
 
@@ -224,7 +368,7 @@ pytest tests/integration/ -v
 ### Integration Testing
 ```bash
 # Test complete pipeline
-python test_complete_integration.py
+python integration_main.py
 
 # Test Component 6→7 direct integration
 python test_component6_7_integration.py
@@ -241,6 +385,13 @@ python benchmarks/generate_report.py
 
 ## 📈 Performance Metrics
 
+### Component 5 (LSTM Memory) Metrics
+- **Gate Inference**: <100ms per memory
+- **Memory Creation**: <200ms including database save
+- **Context Assembly**: <500ms for 1000+ memories
+- **Storage Efficiency**: 40-60% storage rate vs traditional systems
+- **Memory Relevance**: >0.7 average relevance score
+
 ### Component 6 Metrics
 - **Response Time**: Target <2 seconds average
 - **Context Assembly**: <500ms for memory retrieval and assembly
@@ -253,19 +404,29 @@ python benchmarks/generate_report.py
 - **Satisfaction Tracking**: Real-time user satisfaction monitoring
 - **Improvement ROI**: Measurable quality improvements over time
 
+### FastAPI Server Metrics
+- **API Response Time**: <3 seconds for complete conversation processing
+- **Memory Retrieval**: <1 second for LSTM memory context
+- **Health Check**: <500ms for system diagnostics
+- **Concurrent Requests**: Supports multiple simultaneous conversations
+
 ## 🚨 Monitoring & Alerts
 
 ### Health Checks
 - **API Connectivity**: Gemini API availability
-- **Memory Integration**: Component 5 interface health  
+- **AstraDB Connection**: Database connectivity and performance
+- **Memory Integration**: Component 5 LSTM interface health  
 - **Response Quality**: Quality threshold monitoring
 - **Performance**: Response time and error rate tracking
+- **FastAPI Server**: Server health and component initialization
 
 ### Alerting
-- **API Failures**: Immediate notification for API issues
+- **API Failures**: Immediate notification for Gemini API issues
+- **Database Issues**: AstraDB connection and performance alerts
 - **Quality Degradation**: Alerts when quality drops below thresholds
 - **Performance Issues**: Response time or error rate spikes
-- **Memory Issues**: Component 5 integration problems
+- **Memory Issues**: Component 5 LSTM integration problems
+- **Server Issues**: FastAPI server health and component failures
 
 ## 🔐 Security & Privacy
 
@@ -285,6 +446,20 @@ python benchmarks/generate_report.py
 
 ### Common Issues
 
+#### FastAPI Server Issues
+```bash
+# Check if server is running
+curl -X GET "http://localhost:8007/health"
+
+# Check server logs
+python api_integration.py
+
+# Test all endpoints
+curl -X GET "http://localhost:8007/"
+curl -X GET "http://localhost:8007/health"
+curl -X GET "http://localhost:8007/performance"
+```
+
 #### Gemini API Connection Issues
 ```bash
 # Check API key configuration
@@ -292,6 +467,21 @@ python -c "from config.settings import settings; print(settings.GEMINI_API_KEY[:
 
 # Test API connectivity
 python scripts/test_gemini_connection.py
+
+# Test via FastAPI
+curl -X POST "http://localhost:8007/conversation" -H "Content-Type: application/json" -d '{"user_id":"test","user_message":"test","conversation_id":"test"}'
+```
+
+#### AstraDB Connection Issues
+```bash
+# Check database configuration
+python -c "import os; print('ASTRA_DB_API_ENDPOINT:', os.getenv('ASTRA_DB_API_ENDPOINT', 'NOT_SET'))"
+
+# Test database connectivity
+python scripts/test_astra_connection.py
+
+# Test via FastAPI
+curl -X POST "http://localhost:8007/memory/context" -H "Content-Type: application/json" -d '{"user_id":"test","current_message":"test","conversation_id":"test"}'
 ```
 
 #### Memory Integration Problems
@@ -301,6 +491,9 @@ python scripts/test_memory_interface.py
 
 # Check memory retrieval
 python scripts/debug_memory_retrieval.py
+
+# Test LSTM memory via FastAPI
+curl -X POST "http://localhost:8007/memory/retrieve" -H "Content-Type: application/json" -d '{"user_id":"test","current_message":"test","conversation_id":"test"}'
 ```
 
 #### Performance Issues
@@ -323,9 +516,41 @@ python gemini_engine_orchestrator.py --debug --verbose
 
 ## 📚 API Reference
 
-### GeminiEngineOrchestrator
+### FastAPI Endpoints
 
-#### Methods
+#### Core Endpoints
+
+**`POST /conversation`**
+- **Purpose**: Complete conversation processing through LSTM Memory → Context Assembly → Gemini AI → Quality Analysis
+- **Request Body**: `ConversationRequest` with user_id, user_message, conversation_id, emotional_state
+- **Response**: `ConversationResponse` with enhanced_response, quality_metrics, processing_time_ms
+
+**`POST /memory/context`**
+- **Purpose**: LSTM memory context retrieval using Component 5
+- **Request Body**: `MemoryContextRequest` with user_id, current_message, conversation_id, max_memories
+- **Response**: `MemoryContextResponse` with selected_memories, relevance_scores, token_usage
+
+**`GET /health`**
+- **Purpose**: System health check for all components
+- **Response**: `HealthCheckResponse` with overall_healthy, component_health, system_metrics
+
+**`GET /performance`**
+- **Purpose**: Performance metrics for all components
+- **Response**: `PerformanceResponse` with conversation_metrics, component5_stats, component6_stats, component7_stats
+
+#### Testing Endpoints
+
+**`POST /test/integration`**
+- **Purpose**: Run complete integration test suite
+- **Response**: Status message with test execution details
+
+**`GET /test/health`**
+- **Purpose**: Detailed health test with component diagnostics
+- **Response**: Comprehensive system health and performance diagnostics
+
+### Direct Integration API
+
+#### GeminiEngineOrchestrator
 
 **`async process_conversation(user_id, user_input, conversation_id=None)`**
 - Processes user input through complete pipeline
